@@ -1,0 +1,5 @@
+# pgnodemx extension
+comment = 'SQL functions that allow capture of node OS metrics from PostgreSQL'
+default_version = '1.0'
+module_pathname = '$libdir/pgnodemx'
+relocatable = true
