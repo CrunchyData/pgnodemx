@@ -26,6 +26,13 @@ SELECT controller, path FROM cgroup_path();
 ```
 * Returns the path to each supported cgroup controller.
 
+### Get cgroup process count
+```
+SELECT cgroup_process_count();
+```
+* Returns the number of processes assigned to the cgroup
+* Based on the memory controller for cgroup v1
+
 ### Get Memory Metrics by Filename
 ```
 SELECT cgroup_memstat(filename text);

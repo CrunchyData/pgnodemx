@@ -17,6 +17,11 @@ RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_path'
 LANGUAGE C STABLE PARALLEL RESTRICTED;
 
+CREATE FUNCTION cgroup_process_count()
+RETURNS INT4
+AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_process_count'
+LANGUAGE C STABLE PARALLEL RESTRICTED;
+
 CREATE FUNCTION memory_pressure
 (
   OUT key text,

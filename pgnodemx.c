@@ -36,6 +36,7 @@
 #include "catalog/pg_type_d.h"
 #include "fmgr.h"
 #include "funcapi.h"
+#include "lib/qunique.h"
 #include "lib/stringinfo.h"
 #include "miscadmin.h"
 #include "storage/fd.h"
@@ -78,6 +79,8 @@ static char **read_nlsv(char *ftr, int *nlines);
 static char *read_one_nlsv(char *ftr);
 static nested_keyed_line *parse_nested_keyed_line(char *line);
 static int64 getInt64FromFile(char *ftr);
+static int int64_cmp(const void *p1, const void *p2);
+static int cgmembers(int64 **pids);
 
 /* context gathering functions */
 static struct config_generic *find_option(const char *name);
@@ -95,6 +98,7 @@ static Datum form_srf(FunctionCallInfo fcinfo, char ***values,
 void _PG_init(void);
 extern Datum pgnodemx_cgroup_mode(PG_FUNCTION_ARGS);
 extern Datum pgnodemx_cgroup_path(PG_FUNCTION_ARGS);
+extern Datum pgnodemx_cgroup_process_count(PG_FUNCTION_ARGS);
 extern Datum pgnodemx_memory_pressure(PG_FUNCTION_ARGS);
 extern Datum pgnodemx_memstat_int64(PG_FUNCTION_ARGS);
 
@@ -128,13 +132,11 @@ _PG_init(void)
 		ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						errmsg("pgnodemx: must be loaded via shared_preload_libraries")));
 
-	/* overall enable/disable switch */
 	DefineCustomBoolVariable("pgnodemx.containerized",
 							 "True if operating inside a container",
 							 NULL, &containerized, false, PGC_POSTMASTER,
 							 0, NULL, NULL, NULL);
 
-	/* path to memory controller */
 	DefineCustomStringVariable("pgnodemx.cgrouproot",
 							   "Path to root cgroup",
 							   NULL, &cgrouproot, "/sys/fs/cgroup", PGC_POSTMASTER,
@@ -237,7 +239,9 @@ read_vfs(char *filename)
 }
 
 /*
- * Read lines from a "new-line separated values" virtual file
+ * Read lines from a "new-line separated values" virtual file. Returns
+ * the lines as an array of strings (char *), and populates nlines
+ * with the line count.
  */
 static char **
 read_nlsv(char *ftr, int *nlines)
@@ -327,7 +331,7 @@ parse_nested_keyed_line(char *line)
 }
 
 /*
- * Read provided file to obtain some int64 value
+ * Read provided file to obtain one int64 value
  */
 static int64
 getInt64FromFile(char *ftr)
@@ -352,6 +356,82 @@ getInt64FromFile(char *ftr)
 	}
 
 	return result;
+}
+
+/* qsort comparison function for int64 */
+static int
+int64_cmp(const void *p1, const void *p2)
+{
+	int64	v1 = *((const int64 *) p1);
+	int64	v2 = *((const int64 *) p2);
+
+	if (v1 < v2)
+		return -1;
+	if (v1 > v2)
+		return 1;
+	return 0;
+}
+
+/*
+ * Find out all the pids in a cgroup.
+ * 
+ * In cgroup v2 cgroup.procs is not sorted or guaranteed unique.
+ * Remedy that. If not NULL, *pids is set to point to a palloc'd
+ * array containing distinct pids in sorted order. The length of
+ * the array is the function result. Cribbed from aclmembers.
+ */
+static int
+cgmembers(int64 **pids)
+{
+	int64	   *list;
+	int			i;
+	StringInfo	ftr = makeStringInfo();
+	int			nlines;
+	char	  **lines;
+
+	appendStringInfo(ftr, "%s/%s", cgpath[CGMEM], "cgroup.procs");
+	lines = read_nlsv(ftr->data, &nlines);
+
+	if (nlines == 0)
+	{
+		if (pids)
+			*pids = NULL;
+		return 0;
+	}
+
+	/* Allocate the worst-case space requirement */
+	list = palloc(nlines * sizeof(int64));
+
+	/*
+	 * Walk the string array collecting PIDs.
+	 */
+	for (i = 0; i < nlines; i++)
+	{
+		bool	success = false;
+		int64	result;
+
+		success = scanint8(lines[i], true, &result);
+		if (!success)
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					errmsg("contents not an integer, file \"%s\"",
+					ftr->data)));
+
+		list[i] = result;
+	}
+
+	/* Sort the array */
+	qsort(list, nlines, sizeof(int64), int64_cmp);
+
+	/*
+	 * We could repalloc the array down to minimum size, but it's hardly worth
+	 * it since it's only transient memory.
+	 */
+	if (pids)
+		*pids = list;
+
+	/* Remove duplicates from the array, returns new size */
+	return qunique(list, nlines, sizeof(int64), int64_cmp);
 }
 
 /*
@@ -810,6 +890,14 @@ pgnodemx_cgroup_path(PG_FUNCTION_ARGS)
 	values[1][1] = pstrdup(cgpath[CGCPU]);
 
 	return form_srf(fcinfo, values, nrow, ncol, cgpath_sig);
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_process_count);
+Datum
+pgnodemx_cgroup_process_count(PG_FUNCTION_ARGS)
+{
+	/* cgmembers returns pid count */
+	PG_RETURN_INT32(cgmembers(NULL));
 }
 
 PG_FUNCTION_INFO_V1(pgnodemx_memory_pressure);
