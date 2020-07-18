@@ -65,19 +65,22 @@ PG_MODULE_MAGIC;
 
 /* columns in memory pressure output */
 #define MEM_PRESS_NCOL		5
+/* columns in flat keyed output */
+#define FLAT_KEYED_NCOL		2
 
-typedef struct nested_keyed_line
+typedef struct kvpairs
 {
 	int		ncol;
 	char  **keys;
 	char  **values;
-} nested_keyed_line;
+} kvpairs;
 
 /* parsing functions */
 static char *read_vfs(char *ftr);
 static char **read_nlsv(char *ftr, int *nlines);
 static char *read_one_nlsv(char *ftr);
-static nested_keyed_line *parse_nested_keyed_line(char *line);
+static kvpairs *parse_nested_keyed_line(char *line);
+static char **parse_flat_keyed_line(char *line);
 static int64 getInt64FromFile(char *ftr);
 static int int64_cmp(const void *p1, const void *p2);
 static int cgmembers(int64 **pids);
@@ -101,10 +104,12 @@ extern Datum pgnodemx_cgroup_path(PG_FUNCTION_ARGS);
 extern Datum pgnodemx_cgroup_process_count(PG_FUNCTION_ARGS);
 extern Datum pgnodemx_memory_pressure(PG_FUNCTION_ARGS);
 extern Datum pgnodemx_memstat_int64(PG_FUNCTION_ARGS);
+extern Datum pgnodemx_keyed_memstat_int64(PG_FUNCTION_ARGS);
 
 /* function return signatures */
 static Oid cgpath_sig[] = {TEXTOID, TEXTOID};
 static Oid mem_press_sig[] = {TEXTOID, FLOAT8OID, FLOAT8OID, FLOAT8OID, FLOAT8OID};
+static Oid flat_keyed_int64_sig[] = {TEXTOID, INT8OID};
 
 /* custom GUC vars */
 static bool	containerized = false;
@@ -281,14 +286,14 @@ read_one_nlsv(char *ftr)
 /*
  * Parse columns from a "nested keyed" virtual file line
  */
-static nested_keyed_line *
+static kvpairs *
 parse_nested_keyed_line(char *line)
 {
-	char			    *token;
-	char			    *lstate;
-	char			    *subtoken;
-	char			    *cstate;
-	nested_keyed_line   *nkl = (nested_keyed_line *) palloc(sizeof(nested_keyed_line));
+	char			   *token;
+	char			   *lstate;
+	char			   *subtoken;
+	char			   *cstate;
+	kvpairs			   *nkl = (kvpairs *) palloc(sizeof(kvpairs));
 
 	nkl->ncol = 0;
 	nkl->keys = (char **) palloc(0);
@@ -328,6 +333,38 @@ parse_nested_keyed_line(char *line)
 	}
 
 	return nkl;
+}
+
+/*
+ * Parse columns from a "flat keyed" virtual file line.
+ * These lines must be exactly two tokens separated by a space.
+ */
+static char **
+parse_flat_keyed_line(char *line)
+{
+	char   *token;
+	char   *lstate;
+	char  **values = (char **) palloc(2 * sizeof(char *));
+	int		ncol = 0;
+
+	for (token = strtok_r(line, " ", &lstate); token; token = strtok_r(NULL, " ", &lstate))
+	{
+		if (ncol < 2)
+			values[ncol] = pstrdup(token);
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					errmsg("pgnodemx: unexpected number of tokens in flat keyed line")));
+
+		ncol += 1;
+	}
+
+	if (ncol != 2)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: unexpected number of tokens in flat keyed line")));
+
+	return values;
 }
 
 /*
@@ -921,7 +958,7 @@ pgnodemx_memory_pressure(PG_FUNCTION_ARGS)
 		int					nrow = nlines;
 		int					ncol;
 		int					i;
-		nested_keyed_line  *nkl;
+		kvpairs			   *nkl;
 
 		values = (char ***) palloc(nrow * sizeof(char **));
 		for (i = 0; i < nrow; ++i)
@@ -961,6 +998,41 @@ pgnodemx_memstat_int64(PG_FUNCTION_ARGS)
 	PG_RETURN_INT64(result);
 }
 
+PG_FUNCTION_INFO_V1(pgnodemx_keyed_memstat_int64);
+Datum
+pgnodemx_keyed_memstat_int64(PG_FUNCTION_ARGS)
+{
+	StringInfo	ftr = makeStringInfo();
+	char	   *fname = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	int			nlines;
+	char	  **lines;
+
+	appendStringInfo(ftr, "%s/%s", cgpath[CGMEM], fname);
+
+	lines = read_nlsv(ftr->data, &nlines);
+	if (nlines > 0)
+	{
+		char	 ***values;
+		int			nrow = nlines;
+		int			ncol = 2;
+		int			i;
+		char	  **fkl;
+
+		values = (char ***) palloc(nrow * sizeof(char **));
+		for (i = 0; i < nrow; ++i)
+		{
+			fkl = parse_flat_keyed_line(lines[i]);
+
+			values[i] = (char **) palloc(ncol * sizeof(char *));
+			values[i][0] = pstrdup(fkl[0]);
+			values[i][1] = pstrdup(fkl[1]);
+		}
+
+		return form_srf(fcinfo, values, nrow, ncol, flat_keyed_int64_sig);
+	}
+
+	return (Datum) 0;
+}
 
 /*
 cgroup.controllers

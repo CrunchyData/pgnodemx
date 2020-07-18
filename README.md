@@ -33,13 +33,23 @@ SELECT cgroup_process_count();
 * Returns the number of processes assigned to the cgroup
 * Based on the memory controller for cgroup v1
 
-### Get Memory Metrics by Filename
+### Get Scalar BIGINT Memory Metrics by Filename
 ```
-SELECT cgroup_memstat(filename text);
+SELECT cgroup_memstat(filename TEXT);
 ```
-* Returns the bigint value obtained by reading the provided file.
+* Returns the BIGINT value obtained by reading the provided file.
 * ```filename``` is the name of a cgroup memory controller virtual file.
-* This function only works for virtual files which contain a single row, single column, bigint data type value. The only exception to that is the special value "max", which will be translated into the maxumum bigint value.
+* This function only works for virtual files which contain a single row, single column, BIGINT data type value. The only exception to that is the special value "max", which will be translated into the maxumum BIGINT value.
+* Examples: memory.current, memory.high, memory.max, memory.swap.current, memory.limit_in_bytes, memory.usage_in_bytes;
+
+### Get Flat Keyed Memory BIGINT Metrics by Filename
+```
+SELECT * FROM cgroup_keyed_memstat(filename TEXT);
+```
+* Returns the key names and BIGINT values obtained by reading the provided file.
+* ```filename``` is the name of a cgroup memory controller virtual file.
+* This function only works for virtual files which contain multiple rows of two columns separated by a space. The first column must be the value name (key) and the second column is a BIGINT data type value. The only exception to that is the special value "max", which will be translated into the maxumum BIGINT value.
+* Examples: memory.stat, memory.events, memory.events.local
 
 ### Get Memory Pressure output
 ```
