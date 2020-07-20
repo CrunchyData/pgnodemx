@@ -6,20 +6,20 @@ SELECT * FROM cgroup_path();
 SELECT cgroup_process_count();
 SELECT current_setting('pgnodemx.containerized');
 
-SELECT cgroup_memstat('memory.current');
-SELECT cgroup_memstat('memory.high');
-SELECT cgroup_memstat('memory.max');
-SELECT cgroup_memstat('memory.swap.current');
+SELECT cgroup_scalar_bigint('memory.current');
+SELECT cgroup_scalar_bigint('memory.high');
+SELECT cgroup_scalar_bigint('memory.max');
+SELECT cgroup_scalar_bigint('memory.swap.current');
 -- should return NULL
-SELECT cgroup_memstat(null);
+SELECT cgroup_scalar_bigint(null);
 -- should fail
-SELECT cgroup_memstat('bar/../../etc/memory.max');
+SELECT cgroup_scalar_bigint('bar/../../etc/memory.max');
 -- should fail
-SELECT cgroup_memstat('/memory.max');
+SELECT cgroup_scalar_bigint('/memory.max');
 CREATE USER pgnodemx_joe;
 SET SESSION AUTHORIZATION pgnodemx_joe;
 -- should fail
-SELECT cgroup_memstat('memory.current');
+SELECT cgroup_scalar_bigint('memory.current');
 RESET SESSION AUTHORIZATION;
 DROP USER pgnodemx_joe;
 

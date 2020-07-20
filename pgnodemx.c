@@ -83,7 +83,6 @@ static int64 getInt64FromFile(char *ftr);
 static char **parse_space_sep_val_file(char *filename, int *nvals);
 static int int64_cmp(const void *p1, const void *p2);
 static int cgmembers(int64 **pids);
-static Datum get_scalar_int64(FunctionCallInfo fcinfo, char *basepath);
 
 /* context gathering functions */
 static struct config_generic *find_option(const char *name);
@@ -532,24 +531,6 @@ cgmembers(int64 **pids)
 	/* Remove duplicates from the array, returns new size */
 	return qunique(list, nlines, sizeof(int64), int64_cmp);
 }
-
-/*
- * Get scalar int64 value from a virtual file
- */
-static Datum
-get_scalar_int64(FunctionCallInfo fcinfo, char *basepath)
-{
-	StringInfo	ftr = makeStringInfo();
-	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0));
-	int64		result;
-
-	appendStringInfo(ftr, "%s/%s", basepath, fname);
-
-	result = getInt64FromFile(ftr->data);
-
-	PG_RETURN_INT64(result);
-}
-
 
 /*
  * Functions for obtaining the context within which we are operating
@@ -1193,11 +1174,26 @@ pgnodemx_memory_pressure(PG_FUNCTION_ARGS)
 	return (Datum) 0;
 }
 
-PG_FUNCTION_INFO_V1(pgnodemx_memstat_int64);
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_scalar_bigint);
 Datum
-pgnodemx_memstat_int64(PG_FUNCTION_ARGS)
+pgnodemx_cgroup_scalar_bigint(PG_FUNCTION_ARGS)
 {
-	return get_scalar_int64(fcinfo, get_cgpath_value("memory"));
+	StringInfo	ftr = makeStringInfo();
+	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0));
+	char	   *p = strchr(fname, '.');
+	Size		len;
+	char	   *controller;
+
+	if (!p)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: missing \".\" in filename %s", PROC_CGROUP_FILE)));
+
+	len = (p - fname);
+	controller = pnstrdup(fname, len);
+	appendStringInfo(ftr, "%s/%s", get_cgpath_value(controller), fname);
+
+	PG_RETURN_INT64(getInt64FromFile(ftr->data));
 }
 
 PG_FUNCTION_INFO_V1(pgnodemx_keyed_memstat_int64);

@@ -22,21 +22,15 @@ RETURNS INT4
 AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_process_count'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
-CREATE FUNCTION memory_pressure
-(
-  OUT key TEXT,
-  OUT avg10 FLOAT8,
-  OUT avg60 FLOAT8,
-  OUT avg300 FLOAT8,
-  OUT total FLOAT8
-)
-RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pgnodemx_memory_pressure'
-LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
-CREATE FUNCTION cgroup_memstat(TEXT)
+
+
+
+
+
+CREATE FUNCTION cgroup_scalar_bigint(TEXT)
 RETURNS BIGINT
-AS 'MODULE_PATHNAME', 'pgnodemx_memstat_int64'
+AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_scalar_bigint'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
 CREATE FUNCTION cgroup_keyed_memstat
@@ -47,5 +41,17 @@ CREATE FUNCTION cgroup_keyed_memstat
 )
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_keyed_memstat_int64'
+LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
+
+CREATE FUNCTION memory_pressure
+(
+  OUT key TEXT,
+  OUT avg10 FLOAT8,
+  OUT avg60 FLOAT8,
+  OUT avg300 FLOAT8,
+  OUT total FLOAT8
+)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'pgnodemx_memory_pressure'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 

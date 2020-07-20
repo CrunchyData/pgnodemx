@@ -25,6 +25,10 @@ cgroup virtual files fall into (at least) the following general categories, each
 
 In each case, the filename must be in the form ```<controller>.<metric>```, e.g. ```memory.stat```
 
+
+
+
+
 Additionally, the following categories of cgroup virtual file formats exist. These are each served with a specific SQL access function:
 
 FIXME: convert to key-subkey-value triplets and generic access function
@@ -35,13 +39,6 @@ FIXME: convert to key-subkey-value triplets and generic access function
 ** memory.pressure - cgroup_memory_pressure()
 * SETOF(TEXT, BIGINT, BIGINT, BIGINT, BIGINT, BIGINT, BIGINT) nested keyed
 ** io.stat - cgroup_io_stat()
-
-
-
-
-
-
-
 
 
 
@@ -70,6 +67,18 @@ SELECT cgroup_process_count();
 ```
 * Returns the number of processes assigned to the cgroup
 * Based on the memory controller for cgroup v1
+
+
+
+
+
+
+
+
+
+
+
+
 
 ### Get Scalar BIGINT Memory Metrics by Filename
 ```
