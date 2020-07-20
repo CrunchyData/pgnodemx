@@ -42,6 +42,6 @@ SELECT * FROM cgroup_setof_kv('memory.events.local');
 SELECT * FROM cgroup_setof_kv('memory.swap.events');
 SELECT * FROM cgroup_setof_kv('pids.events');
 
-
-
-SELECT key, avg10, avg60, avg300, total FROM memory_pressure();
+SELECT * FROM cgroup_setof_nkv('memory.pressure');
+SELECT * FROM cgroup_setof_nkv('io.stat');
+SELECT * FROM cgroup_setof_nkv('cpu.pressure');

@@ -1138,5 +1138,10 @@ cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig)
 		return form_srf(fcinfo, values, nrow, ncol, srf_sig);
 	}
 
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pgnodemx: no lines in separated values file: %s ", fqpath)));
+
+	/* never reached */
 	return (Datum) 0;
 }

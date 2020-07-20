@@ -59,7 +59,7 @@ Oid text_sig[] = {TEXTOID};
 Oid bigint_sig[] = {INT8OID};
 Oid text_text_sig[] = {TEXTOID, TEXTOID};
 Oid text_bigint_sig[] = {TEXTOID, INT8OID};
-Oid mem_press_sig[] = {TEXTOID, FLOAT8OID, FLOAT8OID, FLOAT8OID, FLOAT8OID};
+Oid text_text_float8_sig[] = {TEXTOID, TEXTOID, FLOAT8OID};
 
 void _PG_init(void);
 Datum pgnodemx_cgroup_mode(PG_FUNCTION_ARGS);
@@ -71,7 +71,7 @@ Datum pgnodemx_cgroup_scalar_text(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_setof_bigint(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_setof_text(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_setof_kv(PG_FUNCTION_ARGS);
-Datum pgnodemx_memory_pressure(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_setof_nkv(PG_FUNCTION_ARGS);
 
 /*
  * Entrypoint of this module.
@@ -124,6 +124,13 @@ pgnodemx_cgroup_path(PG_FUNCTION_ARGS)
 	int		nrow = cgpath->nkvp;
 	int		ncol = 2;
 	int		i;
+
+	if (nrow < 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: no lines in cgpath")));
+
+	/* never reached */
 
 	values = (char ***) palloc(nrow * sizeof(char **));
 	for (i = 0; i < nrow; ++i)
@@ -216,51 +223,74 @@ pgnodemx_cgroup_setof_kv(PG_FUNCTION_ARGS)
 		return form_srf(fcinfo, values, nrow, ncol, text_bigint_sig);
 	}
 
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pgnodemx: no lines in flat keyed file: %s ", fqpath)));
+
+	/* never reached */
 	return (Datum) 0;
 }
 
-PG_FUNCTION_INFO_V1(pgnodemx_memory_pressure);
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_nkv);
 Datum
-pgnodemx_memory_pressure(PG_FUNCTION_ARGS)
+pgnodemx_cgroup_setof_nkv(PG_FUNCTION_ARGS)
 {
-	StringInfo	ftr = makeStringInfo();
-	int		nlines;
-	char  **lines;
+	char	   *fqpath = get_fully_qualified_path(fcinfo);
+	int			nlines;
+	char	  **lines;
 
-	appendStringInfo(ftr, "%s/%s", get_cgpath_value("memory"), "memory.pressure");
-	if (is_cgroup_v1)
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("pgnodemx: file %s not supported under cgroup v1", ftr->data)));
-
-	lines = read_nlsv(ftr->data, &nlines);
+	lines = read_nlsv(fqpath, &nlines);
 	if (nlines > 0)
 	{
 		char			 ***values;
-		int					nrow = nlines;
-		int					ncol;
-		int					i;
+		int					nrow;
+		int					ncol = 3;
 		kvpairs			   *nkl;
+		int					nkvp;
+		int					i;
 
+		/*
+		 * We expect that each line in a "nested keyed" file has the
+		 * same number of column. Therefore use the first line of the
+		 * parsed file to determine how many columns we have. The entire
+		 * line has a key, and each column will consist of a subkey and
+		 * value. We will build "number of column" rows from this one line.
+		 * Each row in the output will look like (key, subkey, value).
+		 */
+		nkl = parse_nested_keyed_line(pstrdup(lines[0]));
+		nkvp = nkl->nkvp;
+
+		/* each line expands to nkvp - 1 rows in the output */
+		nrow = nlines * (nkvp - 1);
 		values = (char ***) palloc(nrow * sizeof(char **));
-		for (i = 0; i < nrow; ++i)
+
+		for (i = 0; i < nlines; ++i)
 		{
 			int		j;
 
 			nkl = parse_nested_keyed_line(lines[i]);
-			ncol = nkl->nkvp;
-			if (ncol != MEM_PRESS_NCOL)
+			if (nkl->nkvp != nkvp)
 				ereport(ERROR,
 						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("pgnodemx: unexpected format read from %s", ftr->data)));
+						errmsg("pgnodemx: not nested keyed file: %s ", fqpath)));
 
-			values[i] = (char **) palloc(ncol * sizeof(char *));
-			for (j = 0; j < ncol; ++j)
-				values[i][j] = pstrdup(nkl->values[j]);
+			for (j = 1; j < nkvp; ++j)
+			{
+				values[(i * (nkvp - 1)) + j - 1] = (char **) palloc(ncol * sizeof(char *));
+
+				values[(i * (nkvp - 1)) + j - 1][0] = pstrdup(nkl->values[0]);
+				values[(i * (nkvp - 1)) + j - 1][1] = pstrdup(nkl->keys[j]);
+				values[(i * (nkvp - 1)) + j - 1][2] = pstrdup(nkl->values[j]);
+			}
 		}
 
-		return form_srf(fcinfo, values, nrow, ncol, mem_press_sig);
+		return form_srf(fcinfo, values, nrow, ncol, text_text_float8_sig);
 	}
 
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pgnodemx: no lines in nested keyed file: %s ", fqpath)));
+
+	/* never reached */
 	return (Datum) 0;
 }

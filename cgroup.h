@@ -38,11 +38,6 @@
 #define is_cgroup_v2		(strcmp(cgmode, CGROUP_V2) == 0)
 #define is_cgroup_hy		(strcmp(cgmode, CGROUP_HYBRID) == 0)
 
-/* columns in memory pressure output */
-#define MEM_PRESS_NCOL		5
-/* columns in flat keyed output */
-#define FLAT_KEYED_NCOL		2
-
 typedef struct kvpairs
 {
 	int		nkvp;

@@ -57,19 +57,14 @@ RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_setof_kv'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
-
-
-
-
-CREATE FUNCTION memory_pressure
+CREATE FUNCTION cgroup_setof_nkv
 (
+  IN filename TEXT,
   OUT key TEXT,
-  OUT avg10 FLOAT8,
-  OUT avg60 FLOAT8,
-  OUT avg300 FLOAT8,
-  OUT total FLOAT8
+  OUT subkey TEXT,
+  OUT avg10 FLOAT8
 )
 RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pgnodemx_memory_pressure'
+AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_setof_nkv'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
