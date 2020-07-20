@@ -54,6 +54,13 @@
 
 PG_MODULE_MAGIC;
 
+/* function return signatures */
+Oid text_sig[] = {TEXTOID};
+Oid bigint_sig[] = {INT8OID};
+Oid text_text_sig[] = {TEXTOID, TEXTOID};
+Oid text_bigint_sig[] = {TEXTOID, INT8OID};
+Oid mem_press_sig[] = {TEXTOID, FLOAT8OID, FLOAT8OID, FLOAT8OID, FLOAT8OID};
+
 void _PG_init(void);
 extern Datum pgnodemx_cgroup_mode(PG_FUNCTION_ARGS);
 extern Datum pgnodemx_cgroup_path(PG_FUNCTION_ARGS);
@@ -123,7 +130,7 @@ pgnodemx_cgroup_path(PG_FUNCTION_ARGS)
 		values[i][1] = pstrdup(cgpath->values[i]);
 	}
 
-	return form_srf(fcinfo, values, nrow, ncol, cgpath_sig);
+	return form_srf(fcinfo, values, nrow, ncol, text_text_sig);
 }
 
 PG_FUNCTION_INFO_V1(pgnodemx_cgroup_process_count);
@@ -132,6 +139,91 @@ pgnodemx_cgroup_process_count(PG_FUNCTION_ARGS)
 {
 	/* cgmembers returns pid count */
 	PG_RETURN_INT32(cgmembers(NULL));
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_scalar_bigint);
+Datum
+pgnodemx_cgroup_scalar_bigint(PG_FUNCTION_ARGS)
+{
+	char   *fqpath = get_fully_qualified_path(fcinfo);
+
+	PG_RETURN_INT64(get_int64_from_file(fqpath));
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_scalar_float8);
+Datum
+pgnodemx_cgroup_scalar_float8(PG_FUNCTION_ARGS)
+{
+	char   *fqpath = get_fully_qualified_path(fcinfo);
+
+	PG_RETURN_FLOAT8(get_double_from_file(fqpath));
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_scalar_text);
+Datum
+pgnodemx_cgroup_scalar_text(PG_FUNCTION_ARGS)
+{
+	char   *fqpath = get_fully_qualified_path(fcinfo);
+
+	PG_RETURN_TEXT_P(cstring_to_text(get_string_from_file(fqpath)));
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_bigint);
+Datum
+pgnodemx_cgroup_setof_bigint(PG_FUNCTION_ARGS)
+{
+	return cgroup_setof_scalar_internal(fcinfo, bigint_sig);
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_text);
+Datum
+pgnodemx_cgroup_setof_text(PG_FUNCTION_ARGS)
+{
+	return cgroup_setof_scalar_internal(fcinfo, text_sig);
+}
+
+
+
+
+
+
+
+
+
+PG_FUNCTION_INFO_V1(pgnodemx_keyed_memstat_int64);
+Datum
+pgnodemx_keyed_memstat_int64(PG_FUNCTION_ARGS)
+{
+	StringInfo	ftr = makeStringInfo();
+	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0));
+	int			nlines;
+	char	  **lines;
+
+	appendStringInfo(ftr, "%s/%s", get_cgpath_value("memory"), fname);
+
+	lines = read_nlsv(ftr->data, &nlines);
+	if (nlines > 0)
+	{
+		char	 ***values;
+		int			nrow = nlines;
+		int			ncol = 2;
+		int			i;
+		char	  **fkl;
+
+		values = (char ***) palloc(nrow * sizeof(char **));
+		for (i = 0; i < nrow; ++i)
+		{
+			fkl = parse_flat_keyed_line(lines[i]);
+
+			values[i] = (char **) palloc(ncol * sizeof(char *));
+			values[i][0] = pstrdup(fkl[0]);
+			values[i][1] = pstrdup(fkl[1]);
+		}
+
+		return form_srf(fcinfo, values, nrow, ncol, text_bigint_sig);
+	}
+
+	return (Datum) 0;
 }
 
 PG_FUNCTION_INFO_V1(pgnodemx_memory_pressure);
@@ -179,62 +271,3 @@ pgnodemx_memory_pressure(PG_FUNCTION_ARGS)
 
 	return (Datum) 0;
 }
-
-PG_FUNCTION_INFO_V1(pgnodemx_cgroup_scalar_bigint);
-Datum
-pgnodemx_cgroup_scalar_bigint(PG_FUNCTION_ARGS)
-{
-	StringInfo	ftr = makeStringInfo();
-	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0));
-	char	   *p = strchr(fname, '.');
-	Size		len;
-	char	   *controller;
-
-	if (!p)
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("pgnodemx: missing \".\" in filename %s", PROC_CGROUP_FILE)));
-
-	len = (p - fname);
-	controller = pnstrdup(fname, len);
-	appendStringInfo(ftr, "%s/%s", get_cgpath_value(controller), fname);
-
-	PG_RETURN_INT64(getInt64FromFile(ftr->data));
-}
-
-PG_FUNCTION_INFO_V1(pgnodemx_keyed_memstat_int64);
-Datum
-pgnodemx_keyed_memstat_int64(PG_FUNCTION_ARGS)
-{
-	StringInfo	ftr = makeStringInfo();
-	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0));
-	int			nlines;
-	char	  **lines;
-
-	appendStringInfo(ftr, "%s/%s", get_cgpath_value("memory"), fname);
-
-	lines = read_nlsv(ftr->data, &nlines);
-	if (nlines > 0)
-	{
-		char	 ***values;
-		int			nrow = nlines;
-		int			ncol = 2;
-		int			i;
-		char	  **fkl;
-
-		values = (char ***) palloc(nrow * sizeof(char **));
-		for (i = 0; i < nrow; ++i)
-		{
-			fkl = parse_flat_keyed_line(lines[i]);
-
-			values[i] = (char **) palloc(ncol * sizeof(char *));
-			values[i][0] = pstrdup(fkl[0]);
-			values[i][1] = pstrdup(fkl[1]);
-		}
-
-		return form_srf(fcinfo, values, nrow, ncol, flat_keyed_int64_sig);
-	}
-
-	return (Datum) 0;
-}
-

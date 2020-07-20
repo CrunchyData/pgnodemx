@@ -59,21 +59,20 @@ extern char **read_nlsv(char *ftr, int *nlines);
 extern char *read_one_nlsv(char *ftr);
 extern kvpairs *parse_nested_keyed_line(char *line);
 extern char **parse_flat_keyed_line(char *line);
-extern int64 getInt64FromFile(char *ftr);
+extern int64 get_int64_from_file(char *ftr);
+extern double get_double_from_file(char *ftr);
+extern char *get_string_from_file(char *ftr);
 extern char **parse_space_sep_val_file(char *filename, int *nvals);
 extern char *convert_and_check_filename(text *arg);
+extern char *get_fully_qualified_path(FunctionCallInfo fcinfo);
 extern Datum form_srf(FunctionCallInfo fcinfo,
 					  char ***values, int nrow, int ncol, Oid *dtypes);
+extern Datum cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig);
 
 /* exported globals */
 extern char *cgmode;
 extern kvpairs *cgpath;
 extern char *cgrouproot;
 extern bool containerized;
-
-/* srf return signatures */
-extern Oid cgpath_sig[];
-extern Oid mem_press_sig[];
-extern Oid flat_keyed_int64_sig[];
 
 #endif							/* CGROUP_H */

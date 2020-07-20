@@ -10,16 +10,18 @@ Executing role must have been granted pg_read_server_files membership.
 
 cgroup virtual files fall into (at least) the following general categories, each with a generic SQL access function:
 
-* BIGINT scalar values - ```cgroup_scalar_bigint(filename text)```
+* BIGINT single line scalar values - ```cgroup_scalar_bigint(filename text)```
 ** cgroup v2 examples: cgroup.freeze, cgroup.max.depth, cgroup.max.descendants, cpu.weight, cpu.weight.nice, memory.current, memory.high, memory.low, memory.max, memory.min, memory.oom.group, memory.swap.current, memory.swap.max, pids.current, pids.max
-* FLOAT8 scalar values - ```cgroup_scalar_float8(filename text)```
+* FLOAT8 single line scalar values - ```cgroup_scalar_float8(filename text)```
 ** cgroup v2 examples: cpu.uclamp.max, cpu.uclamp.min
-* TEXT scalar values - ```cgroup_scalar_text(filename text)```
+* TEXT single line scalar values - ```cgroup_scalar_text(filename text)```
 ** cgroup v2 examples: cgroup.type
-* SETOF(BIGINT) space separated values - ```cgroup_setof_bigint(filename text)```
+
+* SETOF(BIGINT) space separated values or multiline scalar values - ```cgroup_setof_bigint(filename text)```
 ** cgroup v2 examples: cgroup.procs, cgroup.threads, cpu.max
-* SETOF(TEXT) space separated values - ```cgroup_setof_text(filename text)```
+* SETOF(TEXT) space separated values or multiline scalar values - ```cgroup_setof_text(filename text)```
 ** cgroup v2 examples: cgroup.controllers, cgroup.subtree_control
+
 * SETOF(TEXT, BIGINT) flat keyed - ```cgroup_setof_kv(filename text)```
 ** cgroup v2 examples: cgroup.events, cgroup.stat, cpu.stat, io.pressure, io.weight, memory.events, memory.events.local, memory.stat, memory.swap.events, pids.events
 

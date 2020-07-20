@@ -29,6 +29,7 @@
 
 #include "postgres.h"
 
+#include <float.h>
 #include <linux/magic.h>
 #include <sys/vfs.h>
 #include <unistd.h>
@@ -44,6 +45,7 @@
 #include "storage/fd.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
+#include "utils/float.h"
 #include "utils/guc.h"
 #include "utils/guc_tables.h"
 #include "utils/int8.h"
@@ -62,11 +64,6 @@ static int guc_var_compare(const void *a, const void *b);
 static int guc_name_compare(const char *namea, const char *nameb);
 static void create_default_cgpath(char *str, int curlen);
 static void init_or_reset_cgpath(void);
-
-/* function return signatures */
-Oid cgpath_sig[] = {TEXTOID, TEXTOID};
-Oid mem_press_sig[] = {TEXTOID, FLOAT8OID, FLOAT8OID, FLOAT8OID, FLOAT8OID};
-Oid flat_keyed_int64_sig[] = {TEXTOID, INT8OID};
 
 /* custom GUC vars */
 bool	containerized = false;
@@ -115,6 +112,27 @@ convert_and_check_filename(text *arg)
 				 errmsg("reference to parent directory (\"..\") not allowed")));
 
 	return filename;
+}
+
+char *
+get_fully_qualified_path(FunctionCallInfo fcinfo)
+{
+	StringInfo	ftr = makeStringInfo();
+	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0));
+	char	   *p = strchr(fname, '.');
+	Size		len;
+	char	   *controller;
+
+	if (!p)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: missing \".\" in filename %s", PROC_CGROUP_FILE)));
+
+	len = (p - fname);
+	controller = pnstrdup(fname, len);
+	appendStringInfo(ftr, "%s/%s", get_cgpath_value(controller), fname);
+
+	return pstrdup(ftr->data);
 }
 
 /*
@@ -325,7 +343,7 @@ parse_flat_keyed_line(char *line)
  * Read provided file to obtain one int64 value
  */
 int64
-getInt64FromFile(char *ftr)
+get_int64_from_file(char *ftr)
 {
 	char	   *rawstr;
 	bool		success = false;
@@ -334,7 +352,7 @@ getInt64FromFile(char *ftr)
 	rawstr = read_one_nlsv(ftr);
 
 	/* cgroup v2 reports literal "max" instead of largest possible value */
-	if (strcmp(rawstr, "max") == 0)
+	if (strcasecmp(rawstr, "max") == 0)
 		result = PG_INT64_MAX;
 	else
 	{
@@ -347,6 +365,33 @@ getInt64FromFile(char *ftr)
 	}
 
 	return result;
+}
+
+/*
+ * Read provided file to obtain one double precision value
+ */
+double
+get_double_from_file(char *ftr)
+{
+	char	   *rawstr = read_one_nlsv(ftr);
+	double		result;
+
+	/* cgroup v2 reports literal "max" instead of largest possible value */
+	if (strcmp(rawstr, "max") == 0)
+		result = DBL_MAX;
+	else
+		result = float8in_internal(rawstr, NULL, "double precision", rawstr);
+
+	return result;
+}
+
+/*
+ * Read provided file to obtain one string value
+ */
+char *
+get_string_from_file(char *ftr)
+{
+	return read_one_nlsv(ftr);
 }
 
 /*
@@ -407,7 +452,7 @@ cgmembers(int64 **pids)
 	int			nlines;
 	char	  **lines;
 
-	appendStringInfo(ftr, "%s/%s", get_cgpath_value("default"), "cgroup.procs");
+	appendStringInfo(ftr, "%s/%s", get_cgpath_value("cgroup"), "cgroup.procs");
 	lines = read_nlsv(ftr->data, &nlines);
 
 	if (nlines == 0)
@@ -695,7 +740,7 @@ create_default_cgpath(char *str, int curlen)
 	cgpath->values = (char **) repalloc(cgpath->values, cgpath->nkvp * sizeof(char *));
 
 	/* create the default record */
-	cgpath->keys[cgpath->nkvp - 1] = MemoryContextStrdup(TopMemoryContext, "default");
+	cgpath->keys[cgpath->nkvp - 1] = MemoryContextStrdup(TopMemoryContext, "cgroup");
 	cgpath->values[cgpath->nkvp - 1] = MemoryContextStrdup(TopMemoryContext, str);
 }
 
@@ -1012,3 +1057,86 @@ form_srf(FunctionCallInfo fcinfo, char ***values, int nrow, int ncol, Oid *dtype
 	return (Datum) 0;
 }
 
+Datum
+cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig)
+{
+	char	   *fqpath = get_fully_qualified_path(fcinfo);
+	int			nlines;
+	char	  **lines;
+
+	lines = read_nlsv(fqpath, &nlines);
+	if (nlines > 0)
+	{
+		char	 ***values;
+		int			nrow;
+		int			ncol = 1;
+		int			i;
+
+		/*
+		 * If there are multiple lines with only one column, we have
+		 * a "new-line separated values" virtual file. If it only
+		 * had one line it would be handled by the equivalent scalar
+		 * function. The other file format that qualifies here is a
+		 * single line "space separated values" file. In either case
+		 * the result is represented as a single column srf.
+		 */
+		if (nlines > 1)
+		{
+			/* "new-line separated values" file */
+			nrow = nlines;
+
+			values = (char ***) palloc(nrow * sizeof(char **));
+			for (i = 0; i < nrow; ++i)
+			{
+				values[i] = (char **) palloc(ncol * sizeof(char *));
+
+				/* if bigint, deal with "max" */
+				if (srf_sig[0] == INT8OID &&
+					strcasecmp(lines[i], "max") == 0)
+				{
+					char		buf[MAXINT8LEN + 1];
+					int			len;
+
+					len = pg_lltoa(PG_INT64_MAX, buf) + 1;
+					values[i][0] = palloc(len);
+					memcpy(values[i][0], buf, len);
+				}
+				else
+					values[i][0] = pstrdup(lines[i]);
+			}
+		}
+		else
+		{
+			/* "space separated values" file */
+			int			nvals;
+			char	  **rawvals;
+
+			rawvals = parse_space_sep_val_file(fqpath, &nvals);
+			nrow = nvals;
+
+			values = (char ***) palloc(nrow * sizeof(char **));
+			for (i = 0; i < nrow; ++i)
+			{
+				values[i] = (char **) palloc(ncol * sizeof(char *));
+
+				/* if bigint, deal with "max" */
+				if (srf_sig[0] == INT8OID &&
+					strcasecmp(rawvals[i], "max") == 0)
+				{
+					char		buf[MAXINT8LEN + 1];
+					int			len;
+
+					len = pg_lltoa(PG_INT64_MAX, buf) + 1;
+					values[i][0] = palloc(len);
+					memcpy(values[i][0], buf, len);
+				}
+				else
+					values[i][0] = pstrdup(rawvals[i]);
+			}
+		}
+
+		return form_srf(fcinfo, values, nrow, ncol, srf_sig);
+	}
+
+	return (Datum) 0;
+}
