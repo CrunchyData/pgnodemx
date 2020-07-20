@@ -7,8 +7,6 @@ CREATE FUNCTION cgroup_mode()
 RETURNS TEXT
 AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_mode'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
-REVOKE EXECUTE ON FUNCTION cgroup_mode() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION cgroup_mode() TO pg_read_server_files;
 
 CREATE FUNCTION cgroup_path
 (
@@ -18,15 +16,11 @@ CREATE FUNCTION cgroup_path
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_path'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
-REVOKE EXECUTE ON FUNCTION cgroup_path() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION cgroup_path() TO pg_read_server_files;
 
 CREATE FUNCTION cgroup_process_count()
 RETURNS INT4
 AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_process_count'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
-REVOKE EXECUTE ON FUNCTION cgroup_process_count() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION cgroup_process_count() TO pg_read_server_files;
 
 CREATE FUNCTION memory_pressure
 (
@@ -39,15 +33,11 @@ CREATE FUNCTION memory_pressure
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_memory_pressure'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
-REVOKE EXECUTE ON FUNCTION memory_pressure() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION memory_pressure() TO pg_read_server_files;
 
 CREATE FUNCTION cgroup_memstat(TEXT)
 RETURNS BIGINT
 AS 'MODULE_PATHNAME', 'pgnodemx_memstat_int64'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
-REVOKE EXECUTE ON FUNCTION cgroup_memstat(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION cgroup_memstat(TEXT) TO pg_read_server_files;
 
 CREATE FUNCTION cgroup_keyed_memstat
 (
@@ -58,6 +48,4 @@ CREATE FUNCTION cgroup_keyed_memstat
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_keyed_memstat_int64'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
-REVOKE EXECUTE ON FUNCTION cgroup_keyed_memstat(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION cgroup_keyed_memstat(TEXT) TO pg_read_server_files;
 

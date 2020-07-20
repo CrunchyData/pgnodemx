@@ -8,6 +8,44 @@ Executing role must have been granted pg_read_server_files membership.
 
 ## cgroup Related Functions
 
+cgroup virtual files fall into (at least) the following general categories, each with a generic SQL access function:
+
+* BIGINT scalar values - ```cgroup_scalar_bigint(filename text)```
+** cgroup v2 examples: cgroup.freeze, cgroup.max.depth, cgroup.max.descendants, cpu.weight, cpu.weight.nice, memory.current, memory.high, memory.low, memory.max, memory.min, memory.oom.group, memory.swap.current, memory.swap.max, pids.current, pids.max
+* FLOAT8 scalar values - ```cgroup_scalar_float8(filename text)```
+** cgroup v2 examples: cpu.uclamp.max, cpu.uclamp.min
+* TEXT scalar values - ```cgroup_scalar_text(filename text)```
+** cgroup v2 examples: cgroup.type
+* SETOF(BIGINT) space separated values - ```cgroup_setof_bigint(filename text)```
+** cgroup v2 examples: cgroup.procs, cgroup.threads, cpu.max
+* SETOF(TEXT) space separated values - ```cgroup_setof_text(filename text)```
+** cgroup v2 examples: cgroup.controllers, cgroup.subtree_control
+* SETOF(TEXT, BIGINT) flat keyed - ```cgroup_setof_kv(filename text)```
+** cgroup v2 examples: cgroup.events, cgroup.stat, cpu.stat, io.pressure, io.weight, memory.events, memory.events.local, memory.stat, memory.swap.events, pids.events
+
+In each case, the filename must be in the form ```<controller>.<metric>```, e.g. ```memory.stat```
+
+Additionally, the following categories of cgroup virtual file formats exist. These are each served with a specific SQL access function:
+
+FIXME: convert to key-subkey-value triplets and generic access function
+
+* SETOF(TEXT, BIGINT, BIGINT, BIGINT, BIGINT) nested keyed
+** cpu.pressure - cgroup_cpu_pressure()
+** io.max - cgroup_io_pressure()
+** memory.pressure - cgroup_memory_pressure()
+* SETOF(TEXT, BIGINT, BIGINT, BIGINT, BIGINT, BIGINT, BIGINT) nested keyed
+** io.stat - cgroup_io_stat()
+
+
+
+
+
+
+
+
+
+
+
 ### Get current cgroup mode
 ```
 SELECT cgroup_mode();
