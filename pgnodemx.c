@@ -488,7 +488,7 @@ cgmembers(int64 **pids)
 	int			nlines;
 	char	  **lines;
 
-	appendStringInfo(ftr, "%s/%s", get_cgpath_value("memory"), "cgroup.procs");
+	appendStringInfo(ftr, "%s/%s", get_cgpath_value("default"), "cgroup.procs");
 	lines = read_nlsv(ftr->data, &nlines);
 
 	if (nlines == 0)
