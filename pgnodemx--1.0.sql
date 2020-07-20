@@ -47,17 +47,19 @@ RETURNS SETOF TEXT
 AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_setof_text'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
-
-
-CREATE FUNCTION cgroup_keyed_memstat
+CREATE FUNCTION cgroup_setof_kv
 (
   IN filename TEXT,
   OUT key TEXT,
   OUT val BIGINT
 )
 RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pgnodemx_keyed_memstat_int64'
+AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_setof_kv'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
+
+
+
+
 
 CREATE FUNCTION memory_pressure
 (

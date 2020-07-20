@@ -29,7 +29,19 @@ DROP USER pgnodemx_joe;
 SELECT cgroup_setof_bigint('cpu.max');
 SELECT cgroup_setof_text('cpu.max');
 SELECT cgroup_setof_bigint('cgroup.procs');
+SELECT cgroup_setof_text('cgroup.controllers');
 
-SELECT * FROM cgroup_keyed_memstat('memory.stat');
+SELECT * FROM cgroup_setof_kv('memory.stat');
+SELECT * FROM cgroup_setof_kv('cgroup.events');
+SELECT * FROM cgroup_setof_kv('cgroup.stat');
+SELECT * FROM cgroup_setof_kv('cpu.stat');
+SELECT * FROM cgroup_setof_kv('io.pressure');
+SELECT * FROM cgroup_setof_kv('io.weight');
+SELECT * FROM cgroup_setof_kv('memory.events');
+SELECT * FROM cgroup_setof_kv('memory.events.local');
+SELECT * FROM cgroup_setof_kv('memory.swap.events');
+SELECT * FROM cgroup_setof_kv('pids.events');
+
+
 
 SELECT key, avg10, avg60, avg300, total FROM memory_pressure();

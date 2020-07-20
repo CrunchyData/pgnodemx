@@ -62,12 +62,16 @@ Oid text_bigint_sig[] = {TEXTOID, INT8OID};
 Oid mem_press_sig[] = {TEXTOID, FLOAT8OID, FLOAT8OID, FLOAT8OID, FLOAT8OID};
 
 void _PG_init(void);
-extern Datum pgnodemx_cgroup_mode(PG_FUNCTION_ARGS);
-extern Datum pgnodemx_cgroup_path(PG_FUNCTION_ARGS);
-extern Datum pgnodemx_cgroup_process_count(PG_FUNCTION_ARGS);
-extern Datum pgnodemx_memory_pressure(PG_FUNCTION_ARGS);
-extern Datum pgnodemx_memstat_int64(PG_FUNCTION_ARGS);
-extern Datum pgnodemx_keyed_memstat_int64(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_mode(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_path(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_process_count(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_scalar_bigint(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_scalar_float8(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_scalar_text(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_setof_bigint(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_setof_text(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_setof_kv(PG_FUNCTION_ARGS);
+Datum pgnodemx_memory_pressure(PG_FUNCTION_ARGS);
 
 /*
  * Entrypoint of this module.
@@ -182,26 +186,15 @@ pgnodemx_cgroup_setof_text(PG_FUNCTION_ARGS)
 	return cgroup_setof_scalar_internal(fcinfo, text_sig);
 }
 
-
-
-
-
-
-
-
-
-PG_FUNCTION_INFO_V1(pgnodemx_keyed_memstat_int64);
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_kv);
 Datum
-pgnodemx_keyed_memstat_int64(PG_FUNCTION_ARGS)
+pgnodemx_cgroup_setof_kv(PG_FUNCTION_ARGS)
 {
-	StringInfo	ftr = makeStringInfo();
-	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0));
+	char	   *fqpath = get_fully_qualified_path(fcinfo);
 	int			nlines;
 	char	  **lines;
 
-	appendStringInfo(ftr, "%s/%s", get_cgpath_value("memory"), fname);
-
-	lines = read_nlsv(ftr->data, &nlines);
+	lines = read_nlsv(fqpath, &nlines);
 	if (nlines > 0)
 	{
 		char	 ***values;
