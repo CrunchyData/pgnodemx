@@ -4,7 +4,7 @@
 SQL functions that allow capture of node OS metrics from PostgreSQL
 
 ## Security
-Executing role must have been granted pg_read_server_files membership.
+Executing role must have been granted pg_monitor membership.
 
 ## cgroup Related Functions
 
