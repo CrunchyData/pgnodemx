@@ -36,7 +36,7 @@ In each case, the filename must be in the form ```<controller>.<metric>```, e.g.
 ```
 SELECT cgroup_mode();
 ```
-* Returns the current cgroup mode. Possible values are "legacy", "unified", "hybrid", and "disabled". These correspond to cgroup v1, cgroup v2, mixed, and disbled, respectively.
+* Returns the current cgroup mode. Possible values are "legacy", "unified", "hybrid", and "disabled". These correspond to cgroup v1, cgroup v2, mixed, and disabled, respectively.
 
 ### Determine if Running Containerized
 ```
