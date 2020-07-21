@@ -93,6 +93,10 @@ Notes:
 
 ## Installation
 
+### Compatibility
+
+PostgreSQL version 10 or newer is required.
+
 ### Compile and Install
 
 Clone PostgreSQL repository:
