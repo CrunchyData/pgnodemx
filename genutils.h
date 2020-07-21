@@ -1,7 +1,7 @@
 /*
- * cgroup.h
+ * genutils.h
  *
- * Functions specific to capture and manipulation of cgroup virtual files
+ * General utility functions
  * 
  * Joe Conway <joe@crunchydata.com>
  *
@@ -28,31 +28,12 @@
  * MODIFICATIONS.
  */
 
-#ifndef CGROUP_H
-#define CGROUP_H
+#ifndef GENUTILS_H
+#define GENUTILS_H
 
-#include "parseutils.h"
+extern Datum form_srf(FunctionCallInfo fcinfo,
+					  char ***values, int nrow, int ncol, Oid *dtypes);
+extern int int64_cmp(const void *p1, const void *p2);
+extern struct config_generic *find_option(const char *name);
 
-#define PROC_CGROUP_FILE	"/proc/self/cgroup"
-#define CGROUP_V1			"legacy"
-#define CGROUP_V2			"unified"
-#define CGROUP_HYBRID		"hybrid"
-#define is_cgroup_v1		(strcmp(cgmode, CGROUP_V1) == 0)
-#define is_cgroup_v2		(strcmp(cgmode, CGROUP_V2) == 0)
-#define is_cgroup_hy		(strcmp(cgmode, CGROUP_HYBRID) == 0)
-
-extern void set_cgmode(void);
-extern void set_containerized(void);
-extern void set_cgpath(void);
-extern int cgmembers(int64 **pids);
-extern char *get_cgpath_value(char *key);
-extern char *get_fq_cgroup_path(FunctionCallInfo fcinfo);
-extern Datum cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig);
-
-/* exported globals */
-extern char *cgmode;
-extern kvpairs *cgpath;
-extern char *cgrouproot;
-extern bool containerized;
-
-#endif	/* CGROUP_H */
+#endif	/* GENUTILS_H */

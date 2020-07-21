@@ -1,7 +1,7 @@
 /*
- * cgroup.h
+ * envutils.h
  *
- * Functions specific to capture and manipulation of cgroup virtual files
+ * Functions specific to capture and manipulation of environment vars
  * 
  * Joe Conway <joe@crunchydata.com>
  *
@@ -28,31 +28,8 @@
  * MODIFICATIONS.
  */
 
-#ifndef CGROUP_H
-#define CGROUP_H
+#ifndef ENVUTILS_H
+#define ENVUTILS_H
 
-#include "parseutils.h"
 
-#define PROC_CGROUP_FILE	"/proc/self/cgroup"
-#define CGROUP_V1			"legacy"
-#define CGROUP_V2			"unified"
-#define CGROUP_HYBRID		"hybrid"
-#define is_cgroup_v1		(strcmp(cgmode, CGROUP_V1) == 0)
-#define is_cgroup_v2		(strcmp(cgmode, CGROUP_V2) == 0)
-#define is_cgroup_hy		(strcmp(cgmode, CGROUP_HYBRID) == 0)
-
-extern void set_cgmode(void);
-extern void set_containerized(void);
-extern void set_cgpath(void);
-extern int cgmembers(int64 **pids);
-extern char *get_cgpath_value(char *key);
-extern char *get_fq_cgroup_path(FunctionCallInfo fcinfo);
-extern Datum cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig);
-
-/* exported globals */
-extern char *cgmode;
-extern kvpairs *cgpath;
-extern char *cgrouproot;
-extern bool containerized;
-
-#endif	/* CGROUP_H */
+#endif	/* ENVUTILS_H */

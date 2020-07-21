@@ -1,7 +1,8 @@
 /*
- * pgnodemx
+ * cgroup.c
  *
- * SQL functions that allow capture of node OS metrics from PostgreSQL
+ * Functions specific to capture and manipulation of cgroup virtual files
+ * 
  * Joe Conway <joe@crunchydata.com>
  *
  * This code is released under the PostgreSQL license.
@@ -34,34 +35,19 @@
 #include <sys/vfs.h>
 #include <unistd.h>
 
-#include "catalog/pg_authid.h"
-#include "catalog/pg_type_d.h"
-#include "fmgr.h"
-#include "funcapi.h"
 #include "lib/qunique.h"
 #include "lib/stringinfo.h"
-#include "miscadmin.h"
-#include "port.h"
-#include "storage/fd.h"
-#include "utils/acl.h"
 #include "utils/builtins.h"
-#include "utils/float.h"
-#include "utils/guc.h"
 #include "utils/guc_tables.h"
 #include "utils/int8.h"
 #include "utils/memutils.h"
-#include "utils/varlena.h"
 
+#include "fileutils.h"
+#include "genutils.h"
+#include "parseutils.h"
 #include "cgroup.h"
 
-/* parsing functions */
-static char *read_vfs(char *ftr);
-static int int64_cmp(const void *p1, const void *p2);
-
 /* context gathering functions */
-static struct config_generic *find_option(const char *name);
-static int guc_var_compare(const void *a, const void *b);
-static int guc_name_compare(const char *namea, const char *nameb);
 static void create_default_cgpath(char *str, int curlen);
 static void init_or_reset_cgpath(void);
 
@@ -81,41 +67,15 @@ kvpairs *cgpath = NULL;
  */
 
 /*
- * Simplified/modified version of same named function in genfile.c.
- * Be careful not to call during _PG_init() because
- * is_member_of_role does not play nice with shared_preload_libraries.
+ * Take input filename from caller, make sure it is acceptable
+ * (not absolute, no relative parent references, caller belongs
+ * to correct role), and concatenates it with the path to the
+ * related controller in the cgroup filesystem. The returned
+ * value is a "fully qualified" path to the file of interest
+ * for the purposes of cgroup virtual files.
  */
 char *
-convert_and_check_filename(text *arg)
-{
-	char	   *filename;
-
-	/* Limit use to members of the 'pg_monitor' role */
-	if (!is_member_of_role(GetUserId(), DEFAULT_ROLE_MONITOR))
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("must be member of pg_monitor role")));
-
-	filename = text_to_cstring(arg);
-	canonicalize_path(filename);	/* filename can change length here */
-
-	/* Disallow absolute paths */
-	if (is_absolute_path(filename))
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("reference to absolute path not allowed")));
-
-	/* Disallow references to parent directory */
-	if (path_contains_parent_reference(filename))
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("reference to parent directory (\"..\") not allowed")));
-
-	return filename;
-}
-
-char *
-get_fully_qualified_path(FunctionCallInfo fcinfo)
+get_fq_cgroup_path(FunctionCallInfo fcinfo)
 {
 	StringInfo	ftr = makeStringInfo();
 	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0));
@@ -133,306 +93,6 @@ get_fully_qualified_path(FunctionCallInfo fcinfo)
 	appendStringInfo(ftr, "%s/%s", get_cgpath_value(controller), fname);
 
 	return pstrdup(ftr->data);
-}
-
-/*
- * read_vfs(): stripped down copy of read_binary_file() from
- * genfile.c
- */
-
-/* Minimum amount to read at a time */
-#define MIN_READ_SIZE 4096
-static char *
-read_vfs(char *filename)
-{
-	char		   *buf;
-	size_t			nbytes = 0;
-	FILE		   *file;
-	StringInfoData	sbuf;
-
-	if ((file = AllocateFile(filename, PG_BINARY_R)) == NULL)
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not open file \"%s\" for reading: %m",
-						filename)));
-
-	initStringInfo(&sbuf);
-
-	while (!(feof(file) || ferror(file)))
-	{
-		size_t		rbytes;
-
-		/*
-		 * If not at end of file, and sbuf.len is equal to
-		 * MaxAllocSize - 1, then either the file is too large, or
-		 * there is nothing left to read. Attempt to read one more
-		 * byte to see if the end of file has been reached. If not,
-		 * the file is too large; we'd rather give the error message
-		 * for that ourselves.
-		 */
-		if (sbuf.len == MaxAllocSize - 1)
-		{
-			char	rbuf[1]; 
-
-			if (fread(rbuf, 1, 1, file) != 0 || !feof(file))
-				ereport(ERROR,
-						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-						 errmsg("file length too large")));
-			else
-				break;
-		}
-
-		/* OK, ensure that we can read at least MIN_READ_SIZE */
-		enlargeStringInfo(&sbuf, MIN_READ_SIZE);
-
-		/*
-		 * stringinfo.c likes to allocate in powers of 2, so it's likely
-		 * that much more space is available than we asked for.  Use all
-		 * of it, rather than making more fread calls than necessary.
-		 */
-		rbytes = fread(sbuf.data + sbuf.len, 1,
-					   (size_t) (sbuf.maxlen - sbuf.len - 1), file);
-		sbuf.len += rbytes;
-		nbytes += rbytes;
-	}
-
-	/*
-	 * Keep a trailing null in place, same as what
-	 * appendBinaryStringInfo() would do.
-	 */
-	sbuf.data[sbuf.len] = '\0';
-
-	/* Now we can commandeer the stringinfo's buffer as the result */
-	buf = sbuf.data;
-
-	if (ferror(file))
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not read file \"%s\": %m", filename)));
-
-	FreeFile(file);
-
-	return buf;
-}
-
-/*
- * Read lines from a "new-line separated values" virtual file. Returns
- * the lines as an array of strings (char *), and populates nlines
- * with the line count.
- */
-char **
-read_nlsv(char *ftr, int *nlines)
-{
-	char   *rawstr = read_vfs(ftr);
-	char    *token;
-	char   **lines = (char **) palloc(0);
-
-	*nlines = 0;
-	for (token = strtok(rawstr, "\n"); token; token = strtok(NULL, "\n"))
-	{
-		lines = repalloc(lines, (*nlines + 1) * sizeof(char *));
-		lines[*nlines] = pstrdup(token);
-		*nlines += 1;
-	}
-
-	return lines;
-}
-
-/*
- * Read one value from a "new-line separated values" virtual file
- */
-char *
-read_one_nlsv(char *ftr)
-{
-	int		nlines;
-	char  **lines = read_nlsv(ftr, &nlines);
-
-	if (nlines != 1)
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("pgnodemx: expected 1, got %d, lines from file %s", nlines, ftr)));
-
-	return lines[0];
-}
-
-/*
- * Parse columns from a "nested keyed" virtual file line
- */
-kvpairs *
-parse_nested_keyed_line(char *line)
-{
-	char			   *token;
-	char			   *lstate;
-	char			   *subtoken;
-	char			   *cstate;
-	kvpairs			   *nkl = (kvpairs *) palloc(sizeof(kvpairs));
-
-	nkl->nkvp = 0;
-	nkl->keys = (char **) palloc(0);
-	nkl->values = (char **) palloc(0);
-
-	for (token = strtok_r(line, " ", &lstate); token; token = strtok_r(NULL, " ", &lstate))
-	{
-		nkl->keys = repalloc(nkl->keys, (nkl->nkvp + 1) * sizeof(char *));
-		nkl->values = repalloc(nkl->values, (nkl->nkvp + 1) * sizeof(char *));
-
-		if (nkl->nkvp > 0)
-		{
-			subtoken = strtok_r(token, "=", &cstate);
-			if (subtoken)
-				nkl->keys[nkl->nkvp] = pstrdup(subtoken);
-			else
-				ereport(ERROR,
-						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("pgnodemx: missing key in nested keyed line")));
-
-			subtoken = strtok_r(NULL, "=", &cstate);
-			if (subtoken)
-				nkl->values[nkl->nkvp] = pstrdup(subtoken);
-			else
-				ereport(ERROR,
-						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("pgnodemx: missing value in nested keyed line")));
-		}
-		else
-		{
-			/* first column has value only (not in form key=value) */
-			nkl->keys[nkl->nkvp] = pstrdup("key");
-			nkl->values[nkl->nkvp] = pstrdup(token);
-		}
-
-		nkl->nkvp += 1;
-	}
-
-	return nkl;
-}
-
-/*
- * Parse columns from a "flat keyed" virtual file line.
- * These lines must be exactly two tokens separated by a space.
- */
-char **
-parse_flat_keyed_line(char *line)
-{
-	char   *token;
-	char   *lstate;
-	char  **values = (char **) palloc(2 * sizeof(char *));
-	int		ncol = 0;
-
-	for (token = strtok_r(line, " ", &lstate); token; token = strtok_r(NULL, " ", &lstate))
-	{
-		if (ncol < 2)
-			values[ncol] = pstrdup(token);
-		else
-			ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					errmsg("pgnodemx: too many tokens in flat keyed line")));
-
-		ncol += 1;
-	}
-
-	if (ncol != 2)
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("pgnodemx: not enough tokens in flat keyed line")));
-
-	return values;
-}
-
-/*
- * Read provided file to obtain one int64 value
- */
-int64
-get_int64_from_file(char *ftr)
-{
-	char	   *rawstr;
-	bool		success = false;
-	int64		result;
-
-	rawstr = read_one_nlsv(ftr);
-
-	/* cgroup v2 reports literal "max" instead of largest possible value */
-	if (strcasecmp(rawstr, "max") == 0)
-		result = PG_INT64_MAX;
-	else
-	{
-		success = scanint8(rawstr, true, &result);
-		if (!success)
-			ereport(ERROR,
-					(errcode_for_file_access(),
-					errmsg("contents not an integer, file \"%s\"",
-					ftr)));
-	}
-
-	return result;
-}
-
-/*
- * Read provided file to obtain one double precision value
- */
-double
-get_double_from_file(char *ftr)
-{
-	char	   *rawstr = read_one_nlsv(ftr);
-	double		result;
-
-	/* cgroup v2 reports literal "max" instead of largest possible value */
-	if (strcmp(rawstr, "max") == 0)
-		result = DBL_MAX;
-	else
-		result = float8in_internal(rawstr, NULL, "double precision", rawstr);
-
-	return result;
-}
-
-/*
- * Read provided file to obtain one string value
- */
-char *
-get_string_from_file(char *ftr)
-{
-	return read_one_nlsv(ftr);
-}
-
-/*
- * Parse a "space separated values" virtual file.
- * Must be exactly one line with tokens separated by a space.
- * Returns tokens as array of strings, and number of tokens
- * found in nvals.
- */
-char **
-parse_space_sep_val_file(char *ftr, int *nvals)
-{
-	char   *line;
-	char   *token;
-	char   *lstate;
-	char  **values = (char **) palloc(0);
-
-	line = read_one_nlsv(ftr);
-
-	*nvals = 0;
-	for (token = strtok_r(line, " ", &lstate); token; token = strtok_r(NULL, " ", &lstate))
-	{
-		values = repalloc(values, (*nvals + 1) * sizeof(char *));
-		values[*nvals] = pstrdup(token);
-		*nvals += 1;
-	}
-
-	return values;
-}
-
-/* qsort comparison function for int64 */
-static int
-int64_cmp(const void *p1, const void *p2)
-{
-	int64	v1 = *((const int64 *) p1);
-	int64	v2 = *((const int64 *) p2);
-
-	if (v1 < v2)
-		return -1;
-	if (v1 > v2)
-		return 1;
-	return 0;
 }
 
 /*
@@ -495,90 +155,6 @@ cgmembers(int64 **pids)
 
 	/* Remove duplicates from the array, returns new size */
 	return qunique(list, nlines, sizeof(int64), int64_cmp);
-}
-
-/*
- * Functions for obtaining the context within which we are operating
- */
-
-/*
- * Look up GUC option NAME. If it exists, return a pointer to its record,
- * else return NULL. This is cribbed from guc.c -- unfortunately there
- * seems to be no exported functionality to get the entire record by name.
- */
-static struct config_generic *
-find_option(const char *name)
-{
-	const char			  **key = &name;
-	struct config_generic **res;
-	struct config_generic **guc_vars;
-	int                     numOpts;
-
-	Assert(name);
-
-	guc_vars = get_guc_variables();
-	numOpts = GetNumConfigOptions();
-
-	/*
-	 * By equating const char ** with struct config_generic *, we are assuming
-	 * the name field is first in config_generic.
-	 */
-	res = (struct config_generic **) bsearch((void *) &key,
-											 (void *) guc_vars,
-											 numOpts,
-											 sizeof(struct config_generic *),
-											 guc_var_compare);
-	if (res)
-		return *res;
-
-	/* Unknown name */
-	return NULL;
-}
-
-/*
- * Additional utility functions cribbed from guc.c
- */
-
-/*
- * comparator for qsorting and bsearching guc_variables array
- */
-static int
-guc_var_compare(const void *a, const void *b)
-{
-	const struct config_generic *confa = *(struct config_generic *const *) a;
-	const struct config_generic *confb = *(struct config_generic *const *) b;
-
-	return guc_name_compare(confa->name, confb->name);
-}
-
-/*
- * the bare comparison function for GUC names
- */
-static int
-guc_name_compare(const char *namea, const char *nameb)
-{
-	/*
-	 * The temptation to use strcasecmp() here must be resisted, because the
-	 * array ordering has to remain stable across setlocale() calls. So, build
-	 * our own with a simple ASCII-only downcasing.
-	 */
-	while (*namea && *nameb)
-	{
-		char		cha = *namea++;
-		char		chb = *nameb++;
-
-		if (cha >= 'A' && cha <= 'Z')
-			cha += 'a' - 'A';
-		if (chb >= 'A' && chb <= 'Z')
-			chb += 'a' - 'A';
-		if (cha != chb)
-			return cha - chb;
-	}
-	if (*namea)
-		return 1;				/* a is longer */
-	if (*nameb)
-		return -1;				/* b is longer */
-	return 0;
 }
 
 /*
@@ -968,99 +544,9 @@ get_cgpath_value(char *key)
 }
 
 Datum
-form_srf(FunctionCallInfo fcinfo, char ***values, int nrow, int ncol, Oid *dtypes)
-{
-	ReturnSetInfo	   *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
-	Tuplestorestate	   *tupstore;
-	HeapTuple			tuple;
-	TupleDesc			tupdesc;
-	AttInMetadata	   *attinmeta;
-	MemoryContext		per_query_ctx;
-	MemoryContext		oldcontext;
-	int					i;
-
-	/* check to see if caller supports us returning a tuplestore */
-	if (!rsinfo || !(rsinfo->allowedModes & SFRM_Materialize))
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("materialize mode required, but it is not "
-						"allowed in this context")));
-
-	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
-	oldcontext = MemoryContextSwitchTo(per_query_ctx);
-
-	/* get the requested return tuple description */
-	tupdesc = CreateTupleDescCopy(rsinfo->expectedDesc);
-
-	/*
-	 * Check to make sure we have a reasonable tuple descriptor
-	 */
-	if (tupdesc->natts != ncol)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("query-specified return tuple and "
-						"function return type are not compatible"),
-				 errdetail("Number of columns mismatch")));
-	}
-	else
-	{
-		for (i = 0; i < ncol; ++i)
-		{
-			Oid		tdtyp = TupleDescAttr(tupdesc, i)->atttypid;
-
-			if (tdtyp != dtypes[i])
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("query-specified return tuple and "
-							"function return type are not compatible"),
-					 errdetail("Expected %s, got %s", format_type_be(dtypes[i]), format_type_be(tdtyp))));
-		}
-	}
-
-	/* OK to use it */
-	attinmeta = TupleDescGetAttInMetadata(tupdesc);
-
-	/* let the caller know we're sending back a tuplestore */
-	rsinfo->returnMode = SFRM_Materialize;
-
-	/* initialize our tuplestore */
-	tupstore = tuplestore_begin_heap(true, false, work_mem);
-
-	for (i = 0; i < nrow; ++i)
-	{
-		char	   **rowvals = values[i];
-
-		tuple = BuildTupleFromCStrings(attinmeta, rowvals);
-		tuplestore_puttuple(tupstore, tuple);
-	}
-
-	/*
-	 * no longer need the tuple descriptor reference created by
-	 * TupleDescGetAttInMetadata()
-	 */
-	ReleaseTupleDesc(tupdesc);
-
-	tuplestore_donestoring(tupstore);
-	rsinfo->setResult = tupstore;
-
-	/*
-	 * SFRM_Materialize mode expects us to return a NULL Datum. The actual
-	 * tuples are in our tuplestore and passed back through rsinfo->setResult.
-	 * rsinfo->setDesc is set to the tuple description that we actually used
-	 * to build our tuples with, so the caller can verify we did what it was
-	 * expecting.
-	 */
-	rsinfo->setDesc = tupdesc;
-	MemoryContextSwitchTo(oldcontext);
-
-	return (Datum) 0;
-}
-
-Datum
 cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig)
 {
-	char	   *fqpath = get_fully_qualified_path(fcinfo);
+	char	   *fqpath = get_fq_cgroup_path(fcinfo);
 	int			nlines;
 	char	  **lines;
 

@@ -1,8 +1,8 @@
-MODULE_big = pgnodemx
-OBJS	= pgnodemx.o cgroup.o
-PG_CPPFLAGS = -I$(libpq_srcdir)
-EXTENSION = pgnodemx
-DATA = pgnodemx--1.0.sql
+MODULE_big	= pgnodemx
+OBJS		= pgnodemx.o cgroup.o envutils.o fileutils.o genutils.o parseutils.o
+PG_CPPFLAGS	= -I$(libpq_srcdir)
+EXTENSION	= pgnodemx
+DATA		= pgnodemx--1.0.sql
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config

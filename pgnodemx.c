@@ -29,28 +29,13 @@
 
 #include "postgres.h"
 
-#include <linux/magic.h>
-#include <sys/vfs.h>
-#include <unistd.h>
-
-#include "catalog/pg_authid.h"
-#include "catalog/pg_type_d.h"
-#include "fmgr.h"
-#include "funcapi.h"
-#include "lib/qunique.h"
-#include "lib/stringinfo.h"
 #include "miscadmin.h"
-#include "port.h"
-#include "storage/fd.h"
-#include "utils/acl.h"
 #include "utils/builtins.h"
-#include "utils/guc.h"
 #include "utils/guc_tables.h"
-#include "utils/int8.h"
-#include "utils/memutils.h"
-#include "utils/varlena.h"
 
 #include "cgroup.h"
+#include "genutils.h"
+#include "parseutils.h"
 
 PG_MODULE_MAGIC;
 
@@ -156,7 +141,7 @@ PG_FUNCTION_INFO_V1(pgnodemx_cgroup_scalar_bigint);
 Datum
 pgnodemx_cgroup_scalar_bigint(PG_FUNCTION_ARGS)
 {
-	char   *fqpath = get_fully_qualified_path(fcinfo);
+	char   *fqpath = get_fq_cgroup_path(fcinfo);
 
 	PG_RETURN_INT64(get_int64_from_file(fqpath));
 }
@@ -165,7 +150,7 @@ PG_FUNCTION_INFO_V1(pgnodemx_cgroup_scalar_float8);
 Datum
 pgnodemx_cgroup_scalar_float8(PG_FUNCTION_ARGS)
 {
-	char   *fqpath = get_fully_qualified_path(fcinfo);
+	char   *fqpath = get_fq_cgroup_path(fcinfo);
 
 	PG_RETURN_FLOAT8(get_double_from_file(fqpath));
 }
@@ -174,7 +159,7 @@ PG_FUNCTION_INFO_V1(pgnodemx_cgroup_scalar_text);
 Datum
 pgnodemx_cgroup_scalar_text(PG_FUNCTION_ARGS)
 {
-	char   *fqpath = get_fully_qualified_path(fcinfo);
+	char   *fqpath = get_fq_cgroup_path(fcinfo);
 
 	PG_RETURN_TEXT_P(cstring_to_text(get_string_from_file(fqpath)));
 }
@@ -197,7 +182,7 @@ PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_kv);
 Datum
 pgnodemx_cgroup_setof_kv(PG_FUNCTION_ARGS)
 {
-	char	   *fqpath = get_fully_qualified_path(fcinfo);
+	char	   *fqpath = get_fq_cgroup_path(fcinfo);
 	int			nlines;
 	char	  **lines;
 
@@ -235,7 +220,7 @@ PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_nkv);
 Datum
 pgnodemx_cgroup_setof_nkv(PG_FUNCTION_ARGS)
 {
-	char	   *fqpath = get_fully_qualified_path(fcinfo);
+	char	   *fqpath = get_fq_cgroup_path(fcinfo);
 	int			nlines;
 	char	  **lines;
 

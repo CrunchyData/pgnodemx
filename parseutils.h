@@ -1,7 +1,7 @@
 /*
- * cgroup.h
+ * parseutils.h
  *
- * Functions specific to capture and manipulation of cgroup virtual files
+ * Functions specific to parsing various common string formats
  * 
  * Joe Conway <joe@crunchydata.com>
  *
@@ -28,31 +28,23 @@
  * MODIFICATIONS.
  */
 
-#ifndef CGROUP_H
-#define CGROUP_H
+#ifndef PARSEUTILS_H
+#define PARSEUTILS_H
 
-#include "parseutils.h"
+typedef struct kvpairs
+{
+	int		nkvp;
+	char  **keys;
+	char  **values;
+} kvpairs;
 
-#define PROC_CGROUP_FILE	"/proc/self/cgroup"
-#define CGROUP_V1			"legacy"
-#define CGROUP_V2			"unified"
-#define CGROUP_HYBRID		"hybrid"
-#define is_cgroup_v1		(strcmp(cgmode, CGROUP_V1) == 0)
-#define is_cgroup_v2		(strcmp(cgmode, CGROUP_V2) == 0)
-#define is_cgroup_hy		(strcmp(cgmode, CGROUP_HYBRID) == 0)
+extern char **read_nlsv(char *ftr, int *nlines);
+extern char *read_one_nlsv(char *ftr);
+extern kvpairs *parse_nested_keyed_line(char *line);
+extern char **parse_flat_keyed_line(char *line);
+extern int64 get_int64_from_file(char *ftr);
+extern double get_double_from_file(char *ftr);
+extern char *get_string_from_file(char *ftr);
+extern char **parse_space_sep_val_file(char *filename, int *nvals);
 
-extern void set_cgmode(void);
-extern void set_containerized(void);
-extern void set_cgpath(void);
-extern int cgmembers(int64 **pids);
-extern char *get_cgpath_value(char *key);
-extern char *get_fq_cgroup_path(FunctionCallInfo fcinfo);
-extern Datum cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig);
-
-/* exported globals */
-extern char *cgmode;
-extern kvpairs *cgpath;
-extern char *cgrouproot;
-extern bool containerized;
-
-#endif	/* CGROUP_H */
+#endif	/* PARSEUTILS_H */
