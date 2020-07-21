@@ -55,4 +55,5 @@ SELECT controller, path FROM cgroup_path();
 SELECT cgroup_process_count();
 ```
 * Returns the number of processes assigned to the cgroup
-* Based on the memory controller for cgroup v1
+* For cgroup v1, based on the "memory" controller cgroup.procs file. For cgroup v2, based on the unified cgroup.procs file.
+ 
