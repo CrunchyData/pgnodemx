@@ -63,7 +63,7 @@ SELECT cgroup_process_count();
 ```
 shared_preload_libraries = 'pgnodemx'
 ```
-* The following custom parameters may be set. The values shown are defaults. If the default values work, there is no need to add these to ```postgresql.conf```.
+* The following custom parameters may be set. The values shown are defaults. If the default values work, there is no need to add these to ```postgresql.conf```. In particular, if ```pgnodemx.containerized``` is defined in ```postgresql.conf```, that value will override pgnodemx heuristics. When not specified, pgnodemx heuristics will determine if the value should be ```on``` or ```off``` at runtime.
 ```
 # force use of "containerized" assumptions for cgroup file paths
 pgnodemx.containerized = off
