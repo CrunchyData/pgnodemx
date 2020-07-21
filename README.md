@@ -30,7 +30,7 @@ cgroup virtual files fall into (at least) the following general categories, each
 * SETOF(TEXT, TEXT, FLOAT8) nested keyed - ```cgroup_setof_nkv(filename text)```
   * cgroup v2 examples: memory.pressure, cpu.pressure, io.max, io.stat
 
-In each case, the filename must be in the form ```<controller>.<metric>```, e.g. ```memory.stat```
+In each case, the filename must be in the form ```<controller>.<metric>```, e.g. ```memory.stat```. For more information about cgroup v2 virtual files, See https://www.kernel.org/doc/Documentation/cgroup-v2.txt.
 
 ### Get current cgroup mode
 ```

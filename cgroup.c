@@ -59,13 +59,6 @@ char *cgrouproot = NULL;
 char *cgmode = NULL;
 kvpairs *cgpath = NULL;
 
-
-/*
- * Funtions to parse the various virtual file output formats.
- * See https://www.kernel.org/doc/Documentation/cgroup-v2.txt
- * for examples of the types of output formats to be parsed.
- */
-
 /*
  * Take input filename from caller, make sure it is acceptable
  * (not absolute, no relative parent references, caller belongs

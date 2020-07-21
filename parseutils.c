@@ -39,6 +39,12 @@
 #include "parseutils.h"
 
 /*
+ * Funtions to parse the various virtual file output formats.
+ * See https://www.kernel.org/doc/Documentation/cgroup-v2.txt
+ * for examples of the types of output formats to be parsed.
+ */
+
+/*
  * Read lines from a "new-line separated values" virtual file. Returns
  * the lines as an array of strings (char *), and populates nlines
  * with the line count.
