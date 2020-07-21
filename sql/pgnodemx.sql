@@ -35,7 +35,6 @@ SELECT * FROM cgroup_setof_kv('memory.stat');
 SELECT * FROM cgroup_setof_kv('cgroup.events');
 SELECT * FROM cgroup_setof_kv('cgroup.stat');
 SELECT * FROM cgroup_setof_kv('cpu.stat');
-SELECT * FROM cgroup_setof_kv('io.pressure');
 SELECT * FROM cgroup_setof_kv('io.weight');
 SELECT * FROM cgroup_setof_kv('memory.events');
 SELECT * FROM cgroup_setof_kv('memory.events.local');
@@ -44,6 +43,7 @@ SELECT * FROM cgroup_setof_kv('pids.events');
 
 SELECT * FROM cgroup_setof_nkv('memory.pressure');
 SELECT * FROM cgroup_setof_nkv('io.stat');
+SELECT * FROM cgroup_setof_nkv('io.pressure');
 SELECT * FROM cgroup_setof_nkv('cpu.pressure');
 
 SELECT envvar_text('PGDATA');

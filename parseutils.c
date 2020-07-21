@@ -32,7 +32,11 @@
 
 #include <float.h>
 
+#if PG_VERSION_NUM >= 120000
 #include "utils/float.h"
+#else
+#include "utils/builtins.h"
+#endif
 #include "utils/int8.h"
 
 #include "fileutils.h"

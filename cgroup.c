@@ -35,7 +35,18 @@
 #include <sys/vfs.h>
 #include <unistd.h>
 
+#if PG_VERSION_NUM >= 110000
+#include "catalog/pg_type_d.h"
+#else
+#include "catalog/pg_type.h"
+#endif
+#if PG_VERSION_NUM >= 130000
 #include "lib/qunique.h"
+#else	/* did not exist prior to pg13; use local copy */
+#include "qunique.h"
+/* also locally defined prior to pg13 */
+#define MAXINT8LEN              25
+#endif
 #include "lib/stringinfo.h"
 #include "utils/builtins.h"
 #include "utils/guc_tables.h"
@@ -597,7 +608,12 @@ cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig)
 					char		buf[MAXINT8LEN + 1];
 					int			len;
 
+#if PG_VERSION_NUM >= 140000
 					len = pg_lltoa(PG_INT64_MAX, buf) + 1;
+#else
+					pg_lltoa(PG_INT64_MAX, buf);
+					len = strlen(buf) + 1;
+#endif
 					values[i][0] = palloc(len);
 					memcpy(values[i][0], buf, len);
 				}
@@ -626,7 +642,13 @@ cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig)
 					char		buf[MAXINT8LEN + 1];
 					int			len;
 
+#if PG_VERSION_NUM >= 140000
 					len = pg_lltoa(PG_INT64_MAX, buf) + 1;
+#else
+					pg_lltoa(PG_INT64_MAX, buf);
+					len = strlen(buf) + 1;
+#endif
+
 					values[i][0] = palloc(len);
 					memcpy(values[i][0], buf, len);
 				}

@@ -30,16 +30,22 @@
 #include "postgres.h"
 
 #include "catalog/pg_authid.h"
+#if PG_VERSION_NUM >= 110000
+#include "catalog/pg_type_d.h"
+#else
+#include "catalog/pg_type.h"
+#endif
 #include "miscadmin.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/guc_tables.h"
+#include "utils/int8.h"
 
 #include "cgroup.h"
 #include "envutils.h"
 #include "genutils.h"
 #include "parseutils.h"
-#include "utils/int8.h"
+
 
 PG_MODULE_MAGIC;
 
