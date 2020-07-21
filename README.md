@@ -57,6 +57,20 @@ SELECT cgroup_process_count();
 * Returns the number of processes assigned to the cgroup
 * For cgroup v1, based on the "memory" controller cgroup.procs file. For cgroup v2, based on the unified cgroup.procs file.
 
+## Environment Variable Related Functions
+
+### Get Environment Variable as TEXT
+```
+SELECT envvar_text('PGDATA');
+```
+* Returns the value of requested environment variable as TEXT
+
+### Get Environment Variable as BIGINT
+```
+SELECT envvar_bigint('PGPORT');
+```
+* Returns the value of requested environment variable as BIGINT
+
 ## Configuration
 
 * Add pgnodemx to shared_preload_libraries in postgresql.conf.

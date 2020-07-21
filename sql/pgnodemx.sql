@@ -45,3 +45,6 @@ SELECT * FROM cgroup_setof_kv('pids.events');
 SELECT * FROM cgroup_setof_nkv('memory.pressure');
 SELECT * FROM cgroup_setof_nkv('io.stat');
 SELECT * FROM cgroup_setof_nkv('cpu.pressure');
+
+SELECT envvar_text('PGDATA');
+SELECT envvar_bigint('PGPORT');

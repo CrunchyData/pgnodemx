@@ -29,13 +29,17 @@
 
 #include "postgres.h"
 
+#include "catalog/pg_authid.h"
 #include "miscadmin.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/guc_tables.h"
 
 #include "cgroup.h"
+#include "envutils.h"
 #include "genutils.h"
 #include "parseutils.h"
+#include "utils/int8.h"
 
 PG_MODULE_MAGIC;
 
@@ -278,4 +282,44 @@ pgnodemx_cgroup_setof_nkv(PG_FUNCTION_ARGS)
 
 	/* never reached */
 	return (Datum) 0;
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_envvar_text);
+Datum
+pgnodemx_envvar_text(PG_FUNCTION_ARGS)
+{
+	char *varname = text_to_cstring(PG_GETARG_TEXT_PP(0));
+
+	/* Limit use to members of the 'pg_monitor' role */
+	if (!is_member_of_role(GetUserId(), DEFAULT_ROLE_MONITOR))
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be member of pg_monitor role")));
+
+	PG_RETURN_TEXT_P(cstring_to_text(get_string_from_env(varname)));
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_envvar_bigint);
+Datum
+pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
+{
+	bool	success = false;
+	int64	result;
+	char   *varname = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	char   *value = get_string_from_env(varname);
+
+	/* Limit use to members of the 'pg_monitor' role */
+	if (!is_member_of_role(GetUserId(), DEFAULT_ROLE_MONITOR))
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be member of pg_monitor role")));
+
+	success = scanint8(value, true, &result);
+	if (!success)
+		ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("contents not an integer: env variable \"%s\"",
+				varname)));
+
+	PG_RETURN_INT64(result);
 }

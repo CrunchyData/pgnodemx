@@ -31,5 +31,6 @@
 #ifndef ENVUTILS_H
 #define ENVUTILS_H
 
+char *get_string_from_env(char *varname);
 
 #endif	/* ENVUTILS_H */

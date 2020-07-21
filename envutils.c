@@ -31,3 +31,19 @@
 #include "postgres.h"
 
 #include "envutils.h"
+
+char *
+get_string_from_env(char *varname)
+{
+	const char *value = getenv(varname);
+
+	if (value)
+		return pstrdup(value);
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: environment variable not found: %s", varname)));
+
+	/* never reached */
+	return "not found";
+}
