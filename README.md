@@ -36,7 +36,7 @@ In each case, the filename must be in the form ```<controller>.<metric>```, e.g.
 ```
 SELECT cgroup_mode();
 ```
-* Returns the current cgroup mode. Possible values are "legacy", "unified", and "hybrid". These correspond to cgroup v1, cgroup v2, and mixed, respectively.
+* Returns the current cgroup mode. Possible values are "legacy", "unified", "hybrid", and "disabled". These correspond to cgroup v1, cgroup v2, mixed, and disbled, respectively.
 
 ### Determine if Running Containerized
 ```
@@ -88,8 +88,8 @@ pgnodemx.cgroupfs_enabled = on
 ```
 Notes:
 * If ```pgnodemx.containerized``` is defined in ```postgresql.conf```, that value will override pgnodemx heuristics. When not specified, pgnodemx heuristics will determine if the value should be ```on``` or ```off``` at runtime.
-* If pgnodemx.cgroupfs_enabled is defined in ```postgresql.conf```, and set to ```off``` (or ```false```), then all cgroup* functions will return NULL, or zero rows.
-* If the location specified by ```pgnodemx.cgrouproot```, default or as set in ```postgresql.conf```, is not accessible (does not exist, or otherwise causes an error when accessed), then pgnodemx.cgroupfs_enabled is forced to ```off``` at runtime and all cgroup* functions will return NULL, or zero rows.
+* If pgnodemx.cgroupfs_enabled is defined in ```postgresql.conf```, and set to ```off``` (or ```false```), then all cgroup* functions will return NULL, or zero rows, except cgroup_mode() which will return "disabled".
+* If the location specified by ```pgnodemx.cgrouproot```, default or as set in ```postgresql.conf```, is not accessible (does not exist, or otherwise causes an error when accessed), then pgnodemx.cgroupfs_enabled is forced to ```off``` at runtime and all cgroup* functions will return NULL, or zero rows, except cgroup_mode() which will return "disabled".
 
 ## Installation
 
