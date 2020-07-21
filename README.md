@@ -56,4 +56,111 @@ SELECT cgroup_process_count();
 ```
 * Returns the number of processes assigned to the cgroup
 * For cgroup v1, based on the "memory" controller cgroup.procs file. For cgroup v2, based on the unified cgroup.procs file.
- 
+
+## Configuration
+
+* Add pgnodemx to shared_preload_libraries in postgresql.conf.
+```
+shared_preload_libraries = 'pgnodemx'
+```
+* The following custom parameters may be set. The values shown are defaults. If the default values work, there is no need to add these to ```postgresql.conf```.
+```
+# force use of "containerized" assumptions for cgroup file paths
+pgnodemx.containerized = off
+# specify location of cgroup mount
+pgnodemx.cgrouproot = '/sys/fs/cgroup'
+```
+
+## Installation
+
+### Compile and Install
+
+Clone PostgreSQL repository:
+
+```bash
+$> git clone https://github.com/postgres/postgres.git
+```
+
+Checkout REL_12_STABLE (for example) branch:
+
+```bash
+$> git checkout REL_12_STABLE
+```
+
+Make PostgreSQL:
+
+```bash
+$> ./configure
+$> make install -s
+```
+
+Change to the contrib directory:
+
+```bash
+$> cd contrib
+```
+
+Clone ```pgnodemx``` extension:
+
+```bash
+$> git clone https://github.com/crunchydata/pgnodemx
+```
+
+Change to ```pgnodemx``` directory:
+
+```bash
+$> cd pgnodemx
+```
+
+Build ```pgnodemx```:
+
+```bash
+$> make
+```
+
+Install ```pgnodemx```:
+
+```bash
+$> make install
+```
+
+#### Using PGXS
+
+If an instance of PostgreSQL is already installed, then PGXS can be utilized to build and install ```pgnodemx```.  Ensure that PostgreSQL binaries are available via the ```$PATH``` environment variable then use the following commands.
+
+```bash
+$> make USE_PGXS=1
+$> make USE_PGXS=1 install
+```
+
+### Configure
+
+The following bash commands should configure your system to utilize pgnodemx. Replace all paths as appropriate. It may be prudent to visually inspect the files afterward to ensure the changes took place.
+
+###### Initialize PostgreSQL (if needed):
+
+```bash
+$> initdb -D /path/to/data/directory
+```
+
+###### Create Target Database (if needed):
+
+```bash
+$> createdb <database>
+```
+
+###### Install ```pgnodemx``` functions:
+
+Edit postgresql.conf and add ```pgnodemx``` to the shared_preload_libraries line, and change custom settings as mentioned above.
+
+Finally, restart PostgreSQL (method may vary):
+
+```
+$> service postgresql restart
+```
+Install the extension into your database:
+
+```bash
+psql <database>
+CREATE EXTENSION pgnodemx;
+```
