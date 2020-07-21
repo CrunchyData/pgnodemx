@@ -37,11 +37,12 @@
 #define CGROUP_V1			"legacy"
 #define CGROUP_V2			"unified"
 #define CGROUP_HYBRID		"hybrid"
+#define CGROUP_DISABLED		"disabled"
 #define is_cgroup_v1		(strcmp(cgmode, CGROUP_V1) == 0)
 #define is_cgroup_v2		(strcmp(cgmode, CGROUP_V2) == 0)
 #define is_cgroup_hy		(strcmp(cgmode, CGROUP_HYBRID) == 0)
 
-extern void set_cgmode(void);
+extern bool set_cgmode(void);
 extern void set_containerized(void);
 extern void set_cgpath(void);
 extern int cgmembers(int64 **pids);
@@ -54,5 +55,6 @@ extern char *cgmode;
 extern kvpairs *cgpath;
 extern char *cgrouproot;
 extern bool containerized;
+extern bool cgroupfs_enabled;
 
 #endif	/* CGROUP_H */

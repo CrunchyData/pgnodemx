@@ -49,6 +49,9 @@ static int guc_name_compare(const char *namea, const char *nameb);
  * values is the 2D array of strings to convert
  * nrow and ncol provide the array dimensions
  * dtypes is an array of data type oids for the output tuple
+ * 
+ * If nrow is 0 or values is NULL, return an empty tuplestore
+ * to the caller (empty result set).
  */
 Datum
 form_srf(FunctionCallInfo fcinfo, char ***values, int nrow, int ncol, Oid *dtypes)
@@ -110,12 +113,15 @@ form_srf(FunctionCallInfo fcinfo, char ***values, int nrow, int ncol, Oid *dtype
 	/* initialize our tuplestore */
 	tupstore = tuplestore_begin_heap(true, false, work_mem);
 
-	for (i = 0; i < nrow; ++i)
+	if (nrow > 0 && values != NULL)
 	{
-		char	   **rowvals = values[i];
+		for (i = 0; i < nrow; ++i)
+		{
+			char	   **rowvals = values[i];
 
-		tuple = BuildTupleFromCStrings(attinmeta, rowvals);
-		tuplestore_puttuple(tupstore, tuple);
+			tuple = BuildTupleFromCStrings(attinmeta, rowvals);
+			tuplestore_puttuple(tupstore, tuple);
+		}
 	}
 
 	/*

@@ -54,6 +54,7 @@ static void init_or_reset_cgpath(void);
 /* custom GUC vars */
 bool	containerized = false;
 char *cgrouproot = NULL;
+bool cgroupfs_enabled = true;
 
 /* module globals */
 char *cgmode = NULL;
@@ -238,7 +239,7 @@ set_containerized(void)
 /*
  * Determine whether running with cgroup v1, v2, or systemd hybrid mode
  */
-void
+bool
 set_cgmode(void)
 {
 	/*
@@ -254,22 +255,36 @@ set_cgmode(void)
 	 */
 	struct statfs	buf;
 	int				ret;
-	MemoryContext	oldcontext;
+
+	/*
+	 * If requested, directly set cgmode to disabled before
+	 * doing anything else.
+	 */
+	if (!cgroupfs_enabled)
+	{
+		cgmode = MemoryContextStrdup(TopMemoryContext, CGROUP_DISABLED);
+		return false;
+	}
 
 	ret = statfs(cgrouproot, &buf);
 	if (ret == -1)
 	{
-		ereport(ERROR,
+		/*
+		 * If we have an error trying to stat cgrouproot, there is not
+		 * much else we can do besides disabling cgroupfs access.
+		 */
+		ereport(WARNING,
 				(errcode_for_file_access(),
-				errmsg("pgnodemx: statfs error on cgroup mount %s: %m", cgrouproot)));
+				errmsg("pgnodemx: statfs error on cgroup mount %s: %m", cgrouproot),
+				errdetail("disabling cgroup virtual file system access")));
+		cgmode = MemoryContextStrdup(TopMemoryContext, CGROUP_DISABLED);
+		return false;
 	}
 
 	if (buf.f_type == CGROUP2_SUPER_MAGIC)					/* cgroup v2 */
 	{
-		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-		cgmode = pstrdup(CGROUP_V2);
-		MemoryContextSwitchTo(oldcontext);
-		return;
+		cgmode = MemoryContextStrdup(TopMemoryContext, CGROUP_V2);
+		return true;
 	}
 	else if (buf.f_type == TMPFS_MAGIC)
 	{
@@ -278,21 +293,24 @@ set_cgmode(void)
 		appendStringInfo(str, "%s/%s", cgrouproot, "unified");
 		ret = statfs(str->data, &buf);
 
-		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 		if (ret == 0 && buf.f_type == CGROUP2_SUPER_MAGIC)	/* hybrid mode */
-			ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					errmsg("pgnodemx: unsupported cgroup configuration")));
-
+		{
+			cgmode = MemoryContextStrdup(TopMemoryContext, CGROUP_HYBRID);
+			return false;
+		}
 		else												/* cgroup v1 */
-			cgmode = pstrdup(CGROUP_V1);
-		MemoryContextSwitchTo(oldcontext);
-		return;
+		{
+			cgmode = MemoryContextStrdup(TopMemoryContext, CGROUP_V1);
+			return true;
+		}
 	}
 	else
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				errmsg("pgnodemx: unexpected mount type on cgroup root %s", cgrouproot)));
+
+	/* never reached */
+	return false;
 }
 
 /*
@@ -542,13 +560,16 @@ cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig)
 	char	   *fqpath = get_fq_cgroup_path(fcinfo);
 	int			nlines;
 	char	  **lines;
+	int			ncol = 1;
+
+	if (unlikely(!cgroupfs_enabled))
+		return form_srf(fcinfo, NULL, 0, ncol, srf_sig);
 
 	lines = read_nlsv(fqpath, &nlines);
 	if (nlines > 0)
 	{
 		char	 ***values;
 		int			nrow;
-		int			ncol = 1;
 		int			i;
 
 		/*
