@@ -29,6 +29,10 @@
 
 #include "postgres.h"
 
+#if PG_VERSION_NUM < 100000
+#error "pgnodemx only builds with PostgreSQL 10 or later"
+#endif
+
 #include "catalog/pg_authid.h"
 #if PG_VERSION_NUM >= 110000
 #include "catalog/pg_type_d.h"
