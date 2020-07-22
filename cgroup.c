@@ -573,9 +573,6 @@ cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig)
 	char	  **lines;
 	int			ncol = 1;
 
-	if (unlikely(!cgroupfs_enabled))
-		return form_srf(fcinfo, NULL, 0, ncol, srf_sig);
-
 	lines = read_nlsv(fqpath, &nlines);
 	if (nlines > 0)
 	{

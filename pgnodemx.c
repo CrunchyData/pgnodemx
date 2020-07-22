@@ -226,7 +226,7 @@ Datum
 pgnodemx_cgroup_setof_bigint(PG_FUNCTION_ARGS)
 {
 	if (unlikely(!cgroupfs_enabled))
-		PG_RETURN_NULL();
+		return form_srf(fcinfo, NULL, 0, 1, bigint_sig);
 
 	return cgroup_setof_scalar_internal(fcinfo, bigint_sig);
 }
@@ -236,7 +236,7 @@ Datum
 pgnodemx_cgroup_setof_text(PG_FUNCTION_ARGS)
 {
 	if (unlikely(!cgroupfs_enabled))
-		PG_RETURN_NULL();
+		return form_srf(fcinfo, NULL, 0, 1, text_sig);
 
 	return cgroup_setof_scalar_internal(fcinfo, text_sig);
 }
