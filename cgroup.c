@@ -59,6 +59,8 @@
 #include "parseutils.h"
 #include "cgroup.h"
 
+#define DEFCONTROLLER	"memory"
+
 /* context gathering functions */
 static void create_default_cgpath(char *str, int curlen);
 static void init_or_reset_cgpath(void);
@@ -206,14 +208,22 @@ set_containerized(void)
 
 				for (i = 0; i < nlines; ++i)
 				{
-					/* use the memory controller path to test with */
+					/* use the DEFCONTROLLER controller path to test with */
 					char   *line = lines[i];
-					char   *p = strchr(line, ':') + 1;
+					char   *p = strchr(line, ':');
 
-					if (strncmp(p, "memory", 6) == 0)
+					/* advance past the colon */
+					if (p)
+						p += 1;
+
+					if (strncmp(p, DEFCONTROLLER, 6) == 0)
 					{
-						p = strchr(p, ':') + 1;
-						appendStringInfo(str, "%s/memory/%s", cgrouproot, p);
+						p = strchr(p, ':');
+						/* advance past the colon and "/" */
+						if (p)
+							p += 2;
+
+						appendStringInfo(str, "%s/%s/%s", cgrouproot, DEFCONTROLLER, p);
 						break;
 					}
 				}
@@ -473,7 +483,7 @@ set_cgpath(void)
 
 			cgpath->keys[i] = MemoryContextStrdup(TopMemoryContext, controller);
 			cgpath->values[i] = MemoryContextStrdup(TopMemoryContext, str->data);
-			if (strcmp(controller, "memory") == 0)
+			if (strcasecmp(controller, DEFCONTROLLER) == 0)
 				defpath = cgpath->values[i];
 		}
 
