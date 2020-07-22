@@ -39,6 +39,7 @@
 #else
 #include "catalog/pg_type.h"
 #endif
+#include "fmgr.h"
 #include "miscadmin.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
@@ -225,20 +226,26 @@ PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_bigint);
 Datum
 pgnodemx_cgroup_setof_bigint(PG_FUNCTION_ARGS)
 {
+	char	   *fqpath;
+
 	if (unlikely(!cgroupfs_enabled))
 		return form_srf(fcinfo, NULL, 0, 1, bigint_sig);
 
-	return cgroup_setof_scalar_internal(fcinfo, bigint_sig);
+	fqpath = get_fq_cgroup_path(fcinfo);
+	return setof_scalar_internal(fcinfo, fqpath, bigint_sig);
 }
 
 PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_text);
 Datum
 pgnodemx_cgroup_setof_text(PG_FUNCTION_ARGS)
 {
+	char	   *fqpath;
+
 	if (unlikely(!cgroupfs_enabled))
 		return form_srf(fcinfo, NULL, 0, 1, text_sig);
 
-	return cgroup_setof_scalar_internal(fcinfo, text_sig);
+	fqpath = get_fq_cgroup_path(fcinfo);
+	return setof_scalar_internal(fcinfo, fqpath, text_sig);
 }
 
 PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_kv);

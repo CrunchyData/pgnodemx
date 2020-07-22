@@ -48,7 +48,6 @@ extern void set_cgpath(void);
 extern int cgmembers(int64 **pids);
 extern char *get_cgpath_value(char *key);
 extern char *get_fq_cgroup_path(FunctionCallInfo fcinfo);
-extern Datum cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig);
 
 /* exported globals */
 extern char *cgmode;

@@ -40,6 +40,7 @@
 #else
 #include "catalog/pg_type.h"
 #endif
+#include "fmgr.h"
 #if PG_VERSION_NUM >= 130000
 #include "lib/qunique.h"
 #else	/* did not exist prior to pg13; use local copy */
@@ -563,104 +564,4 @@ get_cgpath_value(char *key)
 
 	/* unreached */
 	return "unknown";
-}
-
-Datum
-cgroup_setof_scalar_internal(FunctionCallInfo fcinfo, Oid *srf_sig)
-{
-	char	   *fqpath = get_fq_cgroup_path(fcinfo);
-	int			nlines;
-	char	  **lines;
-	int			ncol = 1;
-
-	lines = read_nlsv(fqpath, &nlines);
-	if (nlines > 0)
-	{
-		char	 ***values;
-		int			nrow;
-		int			i;
-
-		/*
-		 * If there are multiple lines with only one column, we have
-		 * a "new-line separated values" virtual file. If it only
-		 * had one line it would be handled by the equivalent scalar
-		 * function. The other file format that qualifies here is a
-		 * single line "space separated values" file. In either case
-		 * the result is represented as a single column srf.
-		 */
-		if (nlines > 1)
-		{
-			/* "new-line separated values" file */
-			nrow = nlines;
-
-			values = (char ***) palloc(nrow * sizeof(char **));
-			for (i = 0; i < nrow; ++i)
-			{
-				values[i] = (char **) palloc(ncol * sizeof(char *));
-
-				/* if bigint, deal with "max" */
-				if (srf_sig[0] == INT8OID &&
-					strcasecmp(lines[i], "max") == 0)
-				{
-					char		buf[MAXINT8LEN + 1];
-					int			len;
-
-#if PG_VERSION_NUM >= 140000
-					len = pg_lltoa(PG_INT64_MAX, buf) + 1;
-#else
-					pg_lltoa(PG_INT64_MAX, buf);
-					len = strlen(buf) + 1;
-#endif
-					values[i][0] = palloc(len);
-					memcpy(values[i][0], buf, len);
-				}
-				else
-					values[i][0] = pstrdup(lines[i]);
-			}
-		}
-		else
-		{
-			/* "space separated values" file */
-			int			nvals;
-			char	  **rawvals;
-
-			rawvals = parse_space_sep_val_file(fqpath, &nvals);
-			nrow = nvals;
-
-			values = (char ***) palloc(nrow * sizeof(char **));
-			for (i = 0; i < nrow; ++i)
-			{
-				values[i] = (char **) palloc(ncol * sizeof(char *));
-
-				/* if bigint, deal with "max" */
-				if (srf_sig[0] == INT8OID &&
-					strcasecmp(rawvals[i], "max") == 0)
-				{
-					char		buf[MAXINT8LEN + 1];
-					int			len;
-
-#if PG_VERSION_NUM >= 140000
-					len = pg_lltoa(PG_INT64_MAX, buf) + 1;
-#else
-					pg_lltoa(PG_INT64_MAX, buf);
-					len = strlen(buf) + 1;
-#endif
-
-					values[i][0] = palloc(len);
-					memcpy(values[i][0], buf, len);
-				}
-				else
-					values[i][0] = pstrdup(rawvals[i]);
-			}
-		}
-
-		return form_srf(fcinfo, values, nrow, ncol, srf_sig);
-	}
-
-	ereport(ERROR,
-			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-			errmsg("pgnodemx: no lines in separated values file: %s ", fqpath)));
-
-	/* never reached */
-	return (Datum) 0;
 }

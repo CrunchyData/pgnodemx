@@ -253,4 +253,3 @@ parse_space_sep_val_file(char *ftr, int *nvals)
 
 	return values;
 }
-
