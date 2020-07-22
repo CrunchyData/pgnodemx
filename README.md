@@ -19,9 +19,14 @@ cgroup virtual files fall into (at least) the following general categories, each
 * TEXT single line scalar values - ```cgroup_scalar_text(filename text)```
   * cgroup v2 examples: cgroup.type
 
-* SETOF(BIGINT) space separated values or multiline scalar values - ```cgroup_setof_bigint(filename text)```
-  * cgroup v2 examples: cgroup.procs, cgroup.threads, cpu.max
-* SETOF(TEXT) space separated values or multiline scalar values - ```cgroup_setof_text(filename text)```
+* SETOF(BIGINT) multiline scalar values - ```cgroup_setof_bigint(filename text)```
+  * cgroup v2 examples: cgroup.procs, cgroup.threads
+* SETOF(TEXT) multiline scalar values - ```cgroup_setof_text(filename text)```
+  * cgroup v2 examples: none
+
+* ARRAY[BIGINT] space separated values - ```cgroup_array_bigint(filename text)```
+  * cgroup v2 examples: cpu.max
+* ARRAY[TEXT] space separated values - ```cgroup_array_text(filename text)```
   * cgroup v2 examples: cgroup.controllers, cgroup.subtree_control
 
 * SETOF(TEXT, BIGINT) flat keyed - ```cgroup_setof_kv(filename text)```

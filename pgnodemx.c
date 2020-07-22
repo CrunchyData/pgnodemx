@@ -51,7 +51,6 @@
 #include "genutils.h"
 #include "parseutils.h"
 
-
 PG_MODULE_MAGIC;
 
 /* function return signatures */
@@ -246,6 +245,73 @@ pgnodemx_cgroup_setof_text(PG_FUNCTION_ARGS)
 
 	fqpath = get_fq_cgroup_path(fcinfo);
 	return setof_scalar_internal(fcinfo, fqpath, text_sig);
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_array_text);
+Datum
+pgnodemx_cgroup_array_text(PG_FUNCTION_ARGS)
+{
+	char   *fqpath;
+	char  **values;
+	int		nvals;
+	bool	isnull;
+	Datum	dvalue;
+
+	if (unlikely(!cgroupfs_enabled))
+		PG_RETURN_NULL();
+
+	fqpath = get_fq_cgroup_path(fcinfo);
+
+	values = parse_space_sep_val_file(fqpath, &nvals);
+	dvalue = string_get_array_datum(values, nvals, TEXTOID, &isnull);
+	if (!isnull)
+		return dvalue;
+	else
+		PG_RETURN_NULL();
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_array_bigint);
+Datum
+pgnodemx_cgroup_array_bigint(PG_FUNCTION_ARGS)
+{
+	char   *fqpath;
+	char  **values;
+	int		nvals;
+	bool	isnull;
+	Datum	dvalue;
+	int		i;
+
+	if (unlikely(!cgroupfs_enabled))
+		PG_RETURN_NULL();
+
+	fqpath = get_fq_cgroup_path(fcinfo);
+
+	values = parse_space_sep_val_file(fqpath, &nvals);
+
+	/* deal with "max" */
+	for (i = 0; i < nvals; ++i)
+	{
+		if (strcasecmp(values[i], "max") == 0)
+		{
+			char		buf[MAXINT8LEN + 1];
+			int			len;
+
+#if PG_VERSION_NUM >= 140000
+			len = pg_lltoa(PG_INT64_MAX, buf) + 1;
+#else
+			pg_lltoa(PG_INT64_MAX, buf);
+			len = strlen(buf) + 1;
+#endif
+			values[i] = palloc(len);
+			memcpy(values[i], buf, len);
+		}
+	}
+
+	dvalue = string_get_array_datum(values, nvals, INT8OID, &isnull);
+	if (!isnull)
+		return dvalue;
+	else
+		PG_RETURN_NULL();
 }
 
 PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_kv);

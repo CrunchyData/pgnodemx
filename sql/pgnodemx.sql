@@ -26,10 +26,11 @@ SELECT cgroup_scalar_bigint('memory.current');
 RESET SESSION AUTHORIZATION;
 DROP USER pgnodemx_joe;
 
-SELECT cgroup_setof_bigint('cpu.max');
-SELECT cgroup_setof_text('cpu.max');
 SELECT cgroup_setof_bigint('cgroup.procs');
-SELECT cgroup_setof_text('cgroup.controllers');
+
+SELECT cgroup_array_text('cpu.max');
+SELECT cgroup_array_bigint('cpu.max');
+SELECT cgroup_array_text('cgroup.controllers');
 
 SELECT * FROM cgroup_setof_kv('memory.stat');
 SELECT * FROM cgroup_setof_kv('cgroup.events');

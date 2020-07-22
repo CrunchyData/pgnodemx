@@ -35,6 +35,8 @@ extern Datum form_srf(FunctionCallInfo fcinfo,
 					  char ***values, int nrow, int ncol, Oid *dtypes);
 extern Datum setof_scalar_internal(FunctionCallInfo fcinfo,
 								   char *fname, Oid *srf_sig);
+extern Datum string_get_array_datum(char **values, int nvals,
+									Oid typelem, bool *isnull);
 extern int int64_cmp(const void *p1, const void *p2);
 extern struct config_generic *find_option(const char *name);
 
