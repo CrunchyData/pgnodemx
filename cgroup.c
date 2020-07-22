@@ -223,6 +223,10 @@ set_containerized(void)
 						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						errmsg("pgnodemx: no cgroup paths found in file %s", PROC_CGROUP_FILE)));
 
+			if (access(str->data, F_OK) != -1)
+				containerized = false;
+			else
+				containerized = true;
 		}
 		else if (is_cgroup_v2)
 		{
