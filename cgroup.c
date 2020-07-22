@@ -445,7 +445,7 @@ set_cgpath(void)
 						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						errmsg("pgnodemx: malformed cgroup path found in file %s", PROC_CGROUP_FILE)));
 
-			len = ((r - p) - 1);
+			len = ((r - p) - 2);
 
 			controller = pnstrdup(p, len);
 			q = strchr(controller, '=');
