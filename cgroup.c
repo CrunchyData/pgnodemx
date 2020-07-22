@@ -213,7 +213,7 @@ set_containerized(void)
 					if (strncmp(p, "memory", 6) == 0)
 					{
 						p = strchr(p, ':') + 1;
-						appendStringInfo(str, "%s/%s", cgrouproot, p);
+						appendStringInfo(str, "%s/memory/%s", cgrouproot, p);
 						break;
 					}
 				}
@@ -424,7 +424,7 @@ set_cgpath(void)
 			 */
 			char   *line = lines[i];
 			char   *p = strchr(line, ':');
-			char   *r = strchr(p, ':');
+			char   *r;
 			char   *q;
 			Size	len;
 			char   *controller;
@@ -436,8 +436,10 @@ set_cgpath(void)
 						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						errmsg("pgnodemx: malformed cgroup path found in file %s", PROC_CGROUP_FILE)));
 
+			r = strchr(p, ':');
+			/* advance past the ":" and also the "/" */
 			if (r)
-				r += 1;
+				r += 2;
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
