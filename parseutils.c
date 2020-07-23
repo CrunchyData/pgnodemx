@@ -57,8 +57,8 @@ char **
 read_nlsv(char *ftr, int *nlines)
 {
 	char   *rawstr = read_vfs(ftr);
-	char    *token;
-	char   **lines = (char **) palloc(0);
+	char   *token;
+	char  **lines = (char **) palloc(0);
 
 	*nlines = 0;
 	for (token = strtok(rawstr, "\n"); token; token = strtok(NULL, "\n"))
@@ -141,33 +141,24 @@ parse_nested_keyed_line(char *line)
 }
 
 /*
- * Parse columns from a "flat keyed" virtual file line.
- * These lines must be exactly two tokens separated by a space.
+ * Parse tokens from a space separated line.
+ * Return tokens and set ntok to number found.
  */
 char **
-parse_flat_keyed_line(char *line)
+parse_ss_line(char *line, int *ntok)
 {
 	char   *token;
 	char   *lstate;
-	char  **values = (char **) palloc(2 * sizeof(char *));
-	int		ncol = 0;
+	char  **values = (char **) palloc(0);
+
+	*ntok = 0;
 
 	for (token = strtok_r(line, " ", &lstate); token; token = strtok_r(NULL, " ", &lstate))
 	{
-		if (ncol < 2)
-			values[ncol] = pstrdup(token);
-		else
-			ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					errmsg("pgnodemx: too many tokens in flat keyed line")));
-
-		ncol += 1;
+		values = (char **) repalloc(values, (*ntok + 1) * sizeof(char *));
+		values[*ntok] = pstrdup(token);
+		*ntok += 1;
 	}
-
-	if (ncol != 2)
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("pgnodemx: not enough tokens in flat keyed line")));
 
 	return values;
 }

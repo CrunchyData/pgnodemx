@@ -32,6 +32,9 @@
 
 #include <float.h>
 #include <linux/magic.h>
+#ifndef CGROUP2_SUPER_MAGIC
+#define CGROUP2_SUPER_MAGIC  0x63677270
+#endif
 #include <sys/vfs.h>
 #include <unistd.h>
 

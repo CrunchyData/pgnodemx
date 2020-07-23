@@ -39,5 +39,6 @@ extern Datum string_get_array_datum(char **values, int nvals,
 									Oid typelem, bool *isnull);
 extern int int64_cmp(const void *p1, const void *p2);
 extern struct config_generic *find_option(const char *name);
+extern char *int64_to_string(int64 val);
 
 #endif	/* GENUTILS_H */

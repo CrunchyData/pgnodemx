@@ -43,10 +43,6 @@
 #include "miscadmin.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
-#if PG_VERSION_NUM < 130000
-/* currently in builtins.h but locally defined prior to pg13 */
-#define MAXINT8LEN              25
-#endif
 #include "utils/guc_tables.h"
 #include "utils/int8.h"
 
@@ -56,6 +52,12 @@
 #include "parseutils.h"
 
 PG_MODULE_MAGIC;
+
+/* human readable to bytes */
+#define h2b(arg1) \
+  DatumGetInt64(DirectFunctionCall1(pg_size_bytes, PointerGetDatum(cstring_to_text(arg1))))
+/* various /proc/ source files */
+#define meminfo		"/proc/meminfo"
 
 /* function return signatures */
 Oid text_sig[] = {TEXTOID};
@@ -296,19 +298,7 @@ pgnodemx_cgroup_array_bigint(PG_FUNCTION_ARGS)
 	for (i = 0; i < nvals; ++i)
 	{
 		if (strcasecmp(values[i], "max") == 0)
-		{
-			char		buf[MAXINT8LEN + 1];
-			int			len;
-
-#if PG_VERSION_NUM >= 140000
-			len = pg_lltoa(PG_INT64_MAX, buf) + 1;
-#else
-			pg_lltoa(PG_INT64_MAX, buf);
-			len = strlen(buf) + 1;
-#endif
-			values[i] = palloc(len);
-			memcpy(values[i], buf, len);
-		}
+			values[i] = int64_to_string(PG_INT64_MAX);
 	}
 
 	dvalue = string_get_array_datum(values, nvals, INT8OID, &isnull);
@@ -337,16 +327,18 @@ pgnodemx_cgroup_setof_kv(PG_FUNCTION_ARGS)
 		char	 ***values;
 		int			nrow = nlines;
 		int			i;
-		char	  **fkl;
 
 		values = (char ***) palloc(nrow * sizeof(char **));
 		for (i = 0; i < nrow; ++i)
 		{
-			fkl = parse_flat_keyed_line(lines[i]);
+			int	ntok;
 
-			values[i] = (char **) palloc(ncol * sizeof(char *));
-			values[i][0] = pstrdup(fkl[0]);
-			values[i][1] = pstrdup(fkl[1]);
+			values[i] = parse_ss_line(lines[i], &ntok);
+			if (ntok != ncol)
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					errmsg("pgnodemx: expected %d tokens, got %d in flat keyed file %s, line %d",
+						   ncol, ntok, fqpath, i + 1)));
 		}
 
 		return form_srf(fcinfo, values, nrow, ncol, text_bigint_sig);
@@ -467,3 +459,76 @@ pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
 
 	PG_RETURN_INT64(result);
 }
+
+
+/*
+ * "/proc" files: these files have all kinds of formats. For now
+ * at least do not try to create generic parsing functions. Just
+ * create a handful of specific access functions for the most
+ * interesting (to us) files.
+ */
+PG_FUNCTION_INFO_V1(pgnodemx_proc_meminfo);
+Datum
+pgnodemx_proc_meminfo(PG_FUNCTION_ARGS)
+{
+	int			nlines;
+	char	  **lines;
+	int			ncol = 2;
+
+	lines = read_nlsv(meminfo, &nlines);
+	if (nlines > 0)
+	{
+		char	 ***values;
+		int			nrow = nlines;
+		int			i;
+		char	  **fkl;
+
+		values = (char ***) palloc(nrow * sizeof(char **));
+		for (i = 0; i < nrow; ++i)
+		{
+			size_t		len;
+			StringInfo	hbytes = makeStringInfo();
+			int64		nbytes;
+			int			ntok;
+
+			values[i] = (char **) palloc(ncol * sizeof(char *));
+
+			/*
+			 * These lines look like "<key>:_some_spaces_<val>_<unit>
+			 * We usually get back 3 tokens but sometimes 2 (no unit).
+			 * In either case we only have two output columns.
+			 */
+			fkl = parse_ss_line(lines[i], &ntok);
+			if (ntok < 2 || ntok > 3)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
+							   ntok, meminfo, i + 1)));
+
+			/* token 1 will end with an extraneous colon - strip that */
+			len = strlen(fkl[0]) - 1;
+			fkl[0][len] = '\0';
+			values[i][0] = pstrdup(fkl[0]);
+
+			/* reconstruct tok 2 and 3 and then convert to bytes */
+			if (ntok == 3)
+			{
+				appendStringInfo(hbytes, "%s %s", fkl[1], fkl[2]);
+				nbytes = h2b(hbytes->data);
+				values[i][1] = int64_to_string(nbytes);
+			}
+			else
+				values[i][1] = fkl[1];
+		}
+
+		return form_srf(fcinfo, values, nrow, ncol, text_bigint_sig);
+	}
+
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pgnodemx: no lines in file: %s ", meminfo)));
+
+	/* never reached */
+	return (Datum) 0;
+}
+

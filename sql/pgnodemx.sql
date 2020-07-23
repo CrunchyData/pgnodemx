@@ -49,3 +49,5 @@ SELECT * FROM cgroup_setof_nkv('cpu.pressure');
 
 SELECT envvar_text('PGDATA');
 SELECT envvar_bigint('PGPORT');
+
+SELECT * FROM proc_meminfo();

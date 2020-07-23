@@ -365,3 +365,22 @@ guc_name_compare(const char *namea, const char *nameb)
 		return -1;				/* b is longer */
 	return 0;
 }
+
+char *
+int64_to_string(int64 val)
+{
+	char		buf[MAXINT8LEN + 1];
+	int			len;
+	char	   *value;
+
+#if PG_VERSION_NUM >= 140000
+	len = pg_lltoa(val, buf) + 1;
+#else
+	pg_lltoa(val, buf);
+	len = strlen(buf) + 1;
+#endif
+	value = palloc(len);
+	memcpy(value, buf, len);
+
+	return value;
+}
