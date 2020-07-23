@@ -51,3 +51,7 @@ SELECT envvar_text('PGDATA');
 SELECT envvar_bigint('PGPORT');
 
 SELECT * FROM proc_meminfo();
+SELECT * FROM fsinfo(current_setting('data_directory'));
+SELECT pg_size_pretty(total_bytes) AS total_size,
+       pg_size_pretty(available_bytes) AS available_size
+FROM fsinfo(current_setting('data_directory'));

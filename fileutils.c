@@ -30,6 +30,16 @@
 
 #include "postgres.h"
 
+#include <linux/magic.h>
+#ifndef CGROUP2_SUPER_MAGIC
+#define CGROUP2_SUPER_MAGIC  0x63677270
+#endif
+#ifndef XFS_SUPER_MAGIC
+#define XFS_SUPER_MAGIC 0x58465342
+#endif
+#include <sys/statvfs.h>
+#include <sys/vfs.h>
+
 #include "catalog/pg_authid.h"
 #include "miscadmin.h"
 #include "storage/fd.h"
@@ -38,6 +48,76 @@
 #include "utils/memutils.h"
 
 #include "fileutils.h"
+#include "genutils.h"
+
+uint64	magic_ids[] =
+	{ADFS_SUPER_MAGIC,AFFS_SUPER_MAGIC,AFS_SUPER_MAGIC,
+	 ANON_INODE_FS_MAGIC,AUTOFS_SUPER_MAGIC,BDEVFS_MAGIC,
+	 BINFMTFS_MAGIC,BPF_FS_MAGIC,
+	 BTRFS_SUPER_MAGIC,BTRFS_TEST_MAGIC,CGROUP_SUPER_MAGIC,
+	 CGROUP2_SUPER_MAGIC,CODA_SUPER_MAGIC,
+	 CRAMFS_MAGIC,DEBUGFS_MAGIC,
+	 DEVPTS_SUPER_MAGIC,ECRYPTFS_SUPER_MAGIC,
+	 EFIVARFS_MAGIC,EFS_SUPER_MAGIC,
+	 EXT2_SUPER_MAGIC,EXT3_SUPER_MAGIC,
+	 EXT4_SUPER_MAGIC,F2FS_SUPER_MAGIC,
+	 FUTEXFS_SUPER_MAGIC,HOSTFS_SUPER_MAGIC,
+	 HPFS_SUPER_MAGIC,HUGETLBFS_MAGIC,ISOFS_SUPER_MAGIC,
+	 JFFS2_SUPER_MAGIC,MINIX_SUPER_MAGIC,
+	 MINIX_SUPER_MAGIC2,MINIX2_SUPER_MAGIC,MINIX2_SUPER_MAGIC2,
+	 MINIX3_SUPER_MAGIC,MSDOS_SUPER_MAGIC,
+	 MTD_INODE_FS_MAGIC,NCP_SUPER_MAGIC,NFS_SUPER_MAGIC,
+	 NILFS_SUPER_MAGIC,NSFS_MAGIC,
+	 OCFS2_SUPER_MAGIC,OPENPROM_SUPER_MAGIC,
+	 OVERLAYFS_SUPER_MAGIC,PIPEFS_MAGIC,PROC_SUPER_MAGIC,
+	 PSTOREFS_MAGIC,QNX4_SUPER_MAGIC,QNX6_SUPER_MAGIC,
+	 RAMFS_MAGIC,REISERFS_SUPER_MAGIC,
+	 SECURITYFS_MAGIC,SELINUX_MAGIC,SMACK_MAGIC,SMB_SUPER_MAGIC,
+	 SOCKFS_MAGIC,SQUASHFS_MAGIC,SYSFS_MAGIC,
+	 TMPFS_MAGIC,TRACEFS_MAGIC,UDF_SUPER_MAGIC,
+	 USBDEVICE_SUPER_MAGIC,V9FS_MAGIC,
+	 XENFS_SUPER_MAGIC,XFS_SUPER_MAGIC,0};
+
+/* keep in sync with magic_ids above */
+char   *magic_names[] =
+	{"adfs","affs","afs",
+	 "anon_inode_fs","autofs","bdevfs",
+	 "binfmtfs","bpf_fs",
+	 "btrfs","btrfs_test","cgroup",
+	 "cgroup2","coda",
+	 "cramfs","debugfs",
+	 "devpts","ecryptfs",
+	 "efivarfs","efs",
+	 "ext2","ext3",
+	 "ext4","f2fs",
+	 "futexfs","hostfs",
+	 "hpfs","hugetlbfs","isofs",
+	 "jffs2","minix",
+	 "minix12","minix2","minix22",
+	 "minix3","msdos",
+	 "mtd_inode_fs","ncp","nfs",
+	 "nilfs","nsfs",
+	 "ocfs2","openprom",
+	 "overlayfs","pipefs","proc",
+	 "pstorefs","qnx4","qnx6",
+	 "ramfs","reiserfs",
+	 "securityfs","selinux","smack","smb",
+	 "sockfs","squashfs","sysfs",
+	 "tmpfs","tracefs","udf",
+	 "usbdevice","v9fs",
+	 "xenfs","xfs",NULL};
+
+/* possible mount flags */
+uint64	mflags[] =
+	{ST_MANDLOCK,ST_NOATIME,ST_NODEV,ST_NODIRATIME,ST_NOEXEC,
+	 ST_NOSUID,ST_RDONLY,ST_RELATIME,ST_SYNCHRONOUS,0};
+/* keep in sync with mflags above */
+char   *mflagnames[] =
+	{"mandlock","noatime","nodev","nodiratime","noexec",
+	 "nosuid","rdonly","relatime","synchronous",NULL};
+
+static char *magic_get_name(uint64 magic_id);
+static char *mount_flags_to_string(uint64 flags);
 
 /*
  * Simplified/modified version of same named function in genfile.c.
@@ -151,4 +231,88 @@ read_vfs(char *filename)
 	FreeFile(file);
 
 	return buf;
+}
+
+/*
+ * Convert statfs struct for given path (at least the interesting bits)
+ * to a string matrix of key/value pairs, suitable for use in constructing
+ * a tuplestore for returning to the client.
+ */
+char ***
+get_statfs_path(char *pname, int *nrow, int *ncol)
+{
+	struct statfs	buf;
+	int				ret;
+	int				i;
+	char		 ***values;
+
+	*nrow = 1;
+	*ncol = 11;
+
+	ret = statfs(pname, &buf);
+	if (ret == -1)
+	{
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				errmsg("pgnodemx: statfs error on path %s: %m", pname)));
+	}
+
+	values = (char ***) palloc((*nrow) * sizeof(char ***));
+	for (i = 0; i < (*nrow); ++i)
+		values[i] = (char **) palloc((*ncol) * sizeof(char **));
+
+	values[0][0] = magic_get_name((uint64) buf.f_type);
+	values[0][1] = uint64_to_string((uint64) buf.f_bsize);
+	values[0][2] = uint64_to_string((uint64) buf.f_blocks);
+	values[0][3] = uint64_to_string((uint64) (buf.f_blocks * buf.f_bsize));
+	values[0][4] = uint64_to_string((uint64) buf.f_bfree);
+	values[0][5] = uint64_to_string((uint64) (buf.f_bfree * buf.f_bsize));
+	values[0][6] = uint64_to_string((uint64) buf.f_bavail);
+	values[0][7] = uint64_to_string((uint64) (buf.f_bavail * buf.f_bsize));
+	values[0][8] = uint64_to_string((uint64) buf.f_files);
+	values[0][9] = uint64_to_string((uint64) buf.f_ffree);
+	values[0][10] = mount_flags_to_string((uint64) buf.f_flags);
+
+	return values;
+}
+
+static char *
+magic_get_name(uint64 magic_id)
+{
+	int		i = 0;
+
+	while (magic_names[i] != NULL)
+	{
+		if (magic_ids[i] == magic_id)
+			return pstrdup(magic_names[i]);
+		++i;
+	}
+
+	return pstrdup("unknown");
+}
+
+static char *
+mount_flags_to_string(uint64 flags)
+{
+	StringInfo	mflag_str = makeStringInfo();
+	int			i = 0;
+	bool		found = false;
+
+	while (mflagnames[i] != NULL)
+	{
+		if ((flags & mflags[i]) == mflags[i])
+		{
+			if (found)
+				appendStringInfo(mflag_str, ",%s", mflagnames[i]);
+			else
+				appendStringInfo(mflag_str, "%s", mflagnames[i]);
+			found = true;
+		}
+		++i;
+	}
+
+	if (!found)
+		appendStringInfo(mflag_str, "%s", "none");
+
+	return mflag_str->data;
 }

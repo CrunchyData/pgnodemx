@@ -33,5 +33,6 @@
 
 extern char *convert_and_check_filename(text *arg);
 extern char *read_vfs(char *filename);
+extern char ***get_statfs_path(char *pname, int *nrow, int *ncol);
 
 #endif	/* FILEUTILS_H */

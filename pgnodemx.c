@@ -48,6 +48,7 @@
 
 #include "cgroup.h"
 #include "envutils.h"
+#include "fileutils.h"
 #include "genutils.h"
 #include "parseutils.h"
 
@@ -65,6 +66,9 @@ Oid bigint_sig[] = {INT8OID};
 Oid text_text_sig[] = {TEXTOID, TEXTOID};
 Oid text_bigint_sig[] = {TEXTOID, INT8OID};
 Oid text_text_float8_sig[] = {TEXTOID, TEXTOID, FLOAT8OID};
+Oid text_9_bigint_text_sig[] = {TEXTOID, INT8OID, INT8OID, INT8OID,
+										 INT8OID, INT8OID, INT8OID,
+										 INT8OID, INT8OID, INT8OID, TEXTOID};
 
 void _PG_init(void);
 Datum pgnodemx_cgroup_mode(PG_FUNCTION_ARGS);
@@ -532,3 +536,22 @@ pgnodemx_proc_meminfo(PG_FUNCTION_ARGS)
 	return (Datum) 0;
 }
 
+
+/*
+ * "/proc" files: these files have all kinds of formats. For now
+ * at least do not try to create generic parsing functions. Just
+ * create a handful of specific access functions for the most
+ * interesting (to us) files.
+ */
+PG_FUNCTION_INFO_V1(pgnodemx_fsinfo);
+Datum
+pgnodemx_fsinfo(PG_FUNCTION_ARGS)
+{
+	int		nrow;
+	int		ncol;
+	char ***values;
+	char   *pname = text_to_cstring(PG_GETARG_TEXT_PP(0));
+
+	values = get_statfs_path(pname, &nrow, &ncol);
+	return form_srf(fcinfo, values, nrow, ncol, text_9_bigint_text_sig);
+}

@@ -97,3 +97,21 @@ RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_proc_meminfo'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
+CREATE FUNCTION fsinfo
+(
+  IN pathname TEXT,
+  OUT type TEXT,
+  OUT block_size BIGINT,
+  OUT blocks BIGINT,
+  OUT total_bytes BIGINT,
+  OUT free_blocks BIGINT,
+  OUT free_bytes BIGINT,
+  OUT available_blocks BIGINT,
+  OUT available_bytes BIGINT,
+  OUT total_file_nodes BIGINT,
+  OUT free_file_nodes BIGINT,
+  OUT mount_flags TEXT
+)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'pgnodemx_fsinfo'
+LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
