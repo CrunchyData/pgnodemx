@@ -45,8 +45,6 @@
 #include "lib/qunique.h"
 #else	/* did not exist prior to pg13; use local copy */
 #include "qunique.h"
-/* also locally defined prior to pg13 */
-#define MAXINT8LEN              25
 #endif
 #include "lib/stringinfo.h"
 #include "utils/builtins.h"

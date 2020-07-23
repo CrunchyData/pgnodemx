@@ -40,6 +40,10 @@
 #include "miscadmin.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
+#if PG_VERSION_NUM < 130000
+/* currently in builtins.h but locally defined prior to pg13 */
+#define MAXINT8LEN              25
+#endif
 #include "utils/guc_tables.h"
 #include "utils/lsyscache.h"
 
