@@ -32,8 +32,10 @@
 
 #if PG_VERSION_NUM >= 110000
 #include "catalog/pg_collation_d.h"
+#include "catalog/pg_type_d.h"
 #else
 #include "catalog/pg_collation.h"
+#include "catalog/pg_type.h"
 #endif
 #include "fmgr.h"
 #include "funcapi.h"
