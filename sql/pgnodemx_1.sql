@@ -1,6 +1,8 @@
 /* beginnings of a cgroup v1 regression test */
 
 \pset pager off
+DROP EXTENSION IF EXISTS pgnodemx;
+
 CREATE EXTENSION pgnodemx;
 SELECT cgroup_mode();
 SELECT * FROM cgroup_path();
@@ -11,6 +13,8 @@ SELECT cgroup_scalar_bigint('memory.usage_in_bytes');
 SELECT cgroup_scalar_float8('memory.usage_in_bytes');
 SELECT cgroup_scalar_text('memory.usage_in_bytes');
 SELECT cgroup_scalar_bigint('memory.limit_in_bytes');
+SELECT cgroup_scalar_bigint('cpu.cfs_period_us');
+SELECT cgroup_scalar_bigint('cpu.cfs_quota_us');
 
 -- should return NULL
 SELECT cgroup_scalar_bigint(null);
@@ -34,10 +38,8 @@ SELECT * FROM cgroup_setof_kv('cpuacct.stat');
 SELECT * FROM cgroup_setof_kv('cpu.stat');
 SELECT * FROM cgroup_setof_kv('memory.stat');
 
--- FIXME: this one is three columns
---SELECT * FROM cgroup_setof_kv('blkio.throttle.io_serviced');
-SELECT cgroup_setof_text('blkio.throttle.io_serviced');
-
+SELECT * FROM cgroup_setof_ksv('blkio.throttle.io_serviced');
+SELECT * FROM cgroup_setof_ksv('blkio.throttle.io_service_bytes');
 
 SELECT envvar_text('PGDATA');
 SELECT envvar_text('HOSTNAME');

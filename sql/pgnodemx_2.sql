@@ -1,5 +1,8 @@
 /* beginnings of a cgroup v2 regression test */
 
+\pset pager off
+DROP EXTENSION IF EXISTS pgnodemx;
+
 CREATE EXTENSION pgnodemx;
 SELECT cgroup_mode();
 SELECT * FROM cgroup_path();

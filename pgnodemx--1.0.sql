@@ -67,6 +67,17 @@ RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_setof_kv'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
+CREATE FUNCTION cgroup_setof_ksv
+(
+  IN filename TEXT,
+  OUT key TEXT,
+  OUT subkey TEXT,
+  OUT val BIGINT
+)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_setof_ksv'
+LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
+
 CREATE FUNCTION cgroup_setof_nkv
 (
   IN filename TEXT,

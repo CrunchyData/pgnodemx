@@ -65,6 +65,7 @@ Oid text_sig[] = {TEXTOID};
 Oid bigint_sig[] = {INT8OID};
 Oid text_text_sig[] = {TEXTOID, TEXTOID};
 Oid text_bigint_sig[] = {TEXTOID, INT8OID};
+Oid text_text_bigint_sig[] = {TEXTOID, TEXTOID, INT8OID};
 Oid text_text_float8_sig[] = {TEXTOID, TEXTOID, FLOAT8OID};
 Oid text_9_bigint_text_sig[] = {TEXTOID, INT8OID, INT8OID, INT8OID,
 										 INT8OID, INT8OID, INT8OID,
@@ -339,13 +340,78 @@ pgnodemx_cgroup_setof_kv(PG_FUNCTION_ARGS)
 
 			values[i] = parse_ss_line(lines[i], &ntok);
 			if (ntok != ncol)
-			ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					errmsg("pgnodemx: expected %d tokens, got %d in flat keyed file %s, line %d",
-						   ncol, ntok, fqpath, i + 1)));
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: expected %d tokens, got %d in flat keyed file %s, line %d",
+							   ncol, ntok, fqpath, i + 1)));
 		}
 
 		return form_srf(fcinfo, values, nrow, ncol, text_bigint_sig);
+	}
+
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pgnodemx: no lines in flat keyed file: %s ", fqpath)));
+
+	/* never reached */
+	return (Datum) 0;
+}
+
+/*
+ * Some virtual files have multiple rows of three columns:
+ * (key text, subkey text, value bigint). They essentially
+ * look like nkv, except they only have one subkey and value
+ * and no "=" between them. The columns are space separated.
+ * They also may have a "grand sum" line that only has two
+ * columns because it represents a sum of all the other lines.
+ * Two examples of this are blkio.throttle.io_serviced and
+ * blkio.throttle.io_service_bytes.
+ */
+PG_FUNCTION_INFO_V1(pgnodemx_cgroup_setof_ksv);
+Datum
+pgnodemx_cgroup_setof_ksv(PG_FUNCTION_ARGS)
+{
+	char	   *fqpath;
+	int			nlines;
+	char	  **lines;
+	int			ncol = 3;
+
+	if (unlikely(!cgroupfs_enabled))
+		return form_srf(fcinfo, NULL, 0, ncol, text_text_bigint_sig);
+
+	fqpath = get_fq_cgroup_path(fcinfo);
+	lines = read_nlsv(fqpath, &nlines);
+
+	if (nlines > 0)
+	{
+		char	 ***values;
+		int			nrow = nlines;
+		int			i;
+
+		values = (char ***) palloc(nrow * sizeof(char **));
+		for (i = 0; i < nrow; ++i)
+		{
+			int	ntok;
+
+			values[i] = parse_ss_line(lines[i], &ntok);
+			if (ntok > ncol || ntok < ncol - 1)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: expected %d tokens, got %d in flat keyed file %s, line %d",
+							   ncol, ntok, fqpath, i + 1)));
+			}
+			else if (ntok == 2)
+			{
+				/* for the two column case, expand and shift the values right */
+				values[i] = repalloc(values[i], ncol * sizeof(char **));
+				values[i][2] = values[i][1];
+				values[i][1] = values[i][0];
+				values[i][0] = pstrdup("all");
+			}
+		}
+
+		return form_srf(fcinfo, values, nrow, ncol, text_text_bigint_sig);
 	}
 
 	ereport(ERROR,
@@ -555,3 +621,17 @@ pgnodemx_fsinfo(PG_FUNCTION_ARGS)
 	values = get_statfs_path(pname, &nrow, &ncol);
 	return form_srf(fcinfo, values, nrow, ncol, text_9_bigint_text_sig);
 }
+
+
+
+
+
+/*
+network stats
+cat /proc/3121733/net/dev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+  eth0: 653629631 1895531    0    0    0     0          0         0 740774649 1901189    0    0    0     0       0          0
+    lo: 1405375478 12526943    0    0    0     0          0         0 1405375478 12526943    0    0    0     0       0          0
+*/
+
