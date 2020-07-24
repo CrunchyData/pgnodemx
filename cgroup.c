@@ -102,10 +102,10 @@ get_fq_cgroup_path(FunctionCallInfo fcinfo)
 /*
  * Find out all the pids in a cgroup.
  * 
- * In cgroup v2 cgroup.procs is not sorted or guaranteed unique.
- * Remedy that. If not NULL, *pids is set to point to a palloc'd
- * array containing distinct pids in sorted order. The length of
- * the array is the function result. Cribbed from aclmembers.
+ * In cgroup v2 (at least) cgroup.procs is not sorted or guaranteed unique.
+ * Remedy that. *pids is set to point to a palloc'd array containing
+ * distinct pids in sorted order. The length of the array is the
+ * function result. Cribbed from aclmembers.
  */
 int
 cgmembers(int64 **pids)
@@ -121,13 +121,17 @@ cgmembers(int64 **pids)
 
 	if (nlines == 0)
 	{
-		if (pids)
-			*pids = NULL;
-		return 0;
+		/*
+		 * This should never happen, by definition. If it does
+		 * die horribly...
+		 */
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: no cgroup procs found in file %s", ftr->data)));
 	}
 
 	/* Allocate the worst-case space requirement */
-	list = palloc(nlines * sizeof(int64));
+	list = (int64 *) palloc(nlines * sizeof(int64));
 
 	/*
 	 * Walk the string array collecting PIDs.
@@ -154,8 +158,7 @@ cgmembers(int64 **pids)
 	 * We could repalloc the array down to minimum size, but it's hardly worth
 	 * it since it's only transient memory.
 	 */
-	if (pids)
-		*pids = list;
+	*pids = list;
 
 	/* Remove duplicates from the array, returns new size */
 	return qunique(list, nlines, sizeof(int64), int64_cmp);

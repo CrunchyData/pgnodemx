@@ -59,6 +59,7 @@ PG_MODULE_MAGIC;
   DatumGetInt64(DirectFunctionCall1(pg_size_bytes, PointerGetDatum(cstring_to_text(arg1))))
 /* various /proc/ source files */
 #define meminfo		"/proc/meminfo"
+#define netstatfmt	"/proc/%ld/net/dev"
 
 /* function return signatures */
 Oid text_sig[] = {TEXTOID};
@@ -70,6 +71,11 @@ Oid text_text_float8_sig[] = {TEXTOID, TEXTOID, FLOAT8OID};
 Oid text_9_bigint_text_sig[] = {TEXTOID, INT8OID, INT8OID, INT8OID,
 										 INT8OID, INT8OID, INT8OID,
 										 INT8OID, INT8OID, INT8OID, TEXTOID};
+Oid text_17_bigint_sig[] = {TEXTOID, INT8OID,
+							INT8OID, INT8OID, INT8OID, INT8OID,
+							INT8OID, INT8OID, INT8OID, INT8OID,
+							INT8OID, INT8OID, INT8OID, INT8OID,
+							INT8OID, INT8OID, INT8OID, INT8OID};
 
 void _PG_init(void);
 Datum pgnodemx_cgroup_mode(PG_FUNCTION_ARGS);
@@ -183,11 +189,13 @@ PG_FUNCTION_INFO_V1(pgnodemx_cgroup_process_count);
 Datum
 pgnodemx_cgroup_process_count(PG_FUNCTION_ARGS)
 {
+	int64	   *cgpids;
+
 	if (unlikely(!cgroupfs_enabled))
 		PG_RETURN_NULL();
 
 	/* cgmembers returns pid count */
-	PG_RETURN_INT32(cgmembers(NULL));
+	PG_RETURN_INT32(cgmembers(&cgpids));
 }
 
 PG_FUNCTION_INFO_V1(pgnodemx_cgroup_scalar_bigint);
@@ -602,7 +610,6 @@ pgnodemx_proc_meminfo(PG_FUNCTION_ARGS)
 	return (Datum) 0;
 }
 
-
 /*
  * "/proc" files: these files have all kinds of formats. For now
  * at least do not try to create generic parsing functions. Just
@@ -622,16 +629,84 @@ pgnodemx_fsinfo(PG_FUNCTION_ARGS)
 	return form_srf(fcinfo, values, nrow, ncol, text_9_bigint_text_sig);
 }
 
+PG_FUNCTION_INFO_V1(pgnodemx_network_stats);
+Datum
+pgnodemx_network_stats(PG_FUNCTION_ARGS)
+{
+	int			nrow = 0;
+	int			crow = 0;
+	int			ncol = 18;
+	int			npids;
+	int64	   *cgpids;
+	int			i;
+	char	 ***values = (char ***) palloc(0);
 
+	/* get list of all cgroup pids and pid count */
+	npids = cgmembers(&cgpids);
+	for (i = 0; i < npids; ++i)
+	{
+		StringInfo	ftr = makeStringInfo();
+		int			nlines;
+		char	  **lines;
 
+		/* read each /proc/<pid>/net/dev file */
+		appendStringInfo(ftr, netstatfmt, cgpids[i]);
+		lines = read_nlsv(ftr->data, &nlines);
 
+		/*
+		 * These files have two rows we want to skip at the top.
+		 * Lines of interest are 17 space separated columns.
+		 * First column is the interface name. It has a trailing colon.
+		 * Rest of the columns are bigints.
+		 * We want to insert the pid as column two in the output.
+		 */
+		if (nlines > 2)
+		{
+			int			j;
+			char	  **toks;
 
-/*
-network stats
-cat /proc/3121733/net/dev
-Inter-|   Receive                                                |  Transmit
- face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
-  eth0: 653629631 1895531    0    0    0     0          0         0 740774649 1901189    0    0    0     0       0          0
-    lo: 1405375478 12526943    0    0    0     0          0         0 1405375478 12526943    0    0    0     0       0          0
-*/
+			nrow += (nlines - 2);
+			values = (char ***) repalloc(values, nrow * sizeof(char **));
+			for (j = 2; j < nlines; ++j)
+			{
+
+				size_t		len;
+				int			ntok;
+				int			k;
+
+				values[crow] = (char **) palloc(ncol * sizeof(char *));
+
+				toks = parse_ss_line(lines[j], &ntok);
+				if (ntok != ncol - 1)
+					ereport(ERROR,
+							(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+							errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
+								   ntok, ftr->data, j + 1)));
+
+				/* token 1 will end with an extraneous colon - strip that */
+				len = strlen(toks[0]) - 1;
+				toks[0][len] = '\0';
+				values[crow][0] = pstrdup(toks[0]);
+
+				/* second column is our pid */
+				values[crow][1] = pstrdup(int64_to_string(cgpids[i]));
+
+				/* third through eighteenth columns are rx and tx stats */
+				for (k = 1; k < ncol - 1; ++k)
+					values[crow][k + 1] = pstrdup(toks[k]);
+
+				++crow;
+			}
+		}
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					errmsg("pgnodemx: no data in file: %s ", ftr->data)));
+	}
+
+	if (crow == 0)
+		return form_srf(fcinfo, NULL, 0, ncol, text_17_bigint_sig);
+
+	return form_srf(fcinfo, values, nrow, ncol, text_17_bigint_sig);
+}
 

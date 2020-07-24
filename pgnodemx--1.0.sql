@@ -126,3 +126,28 @@ CREATE FUNCTION fsinfo
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_fsinfo'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
+
+CREATE FUNCTION network_stats
+(
+  OUT interface TEXT,
+  OUT pid BIGINT,
+  OUT rx_bytes BIGINT,
+  OUT rx_packets BIGINT,
+  OUT rx_errs BIGINT,
+  OUT rx_drop BIGINT,
+  OUT rx_fifo BIGINT,
+  OUT rx_frame BIGINT,
+  OUT rx_compressed BIGINT,
+  OUT rx_multicast BIGINT,
+  OUT tx_bytes BIGINT,
+  OUT tx_packets BIGINT,
+  OUT tx_errs BIGINT,
+  OUT tx_drop BIGINT,
+  OUT tx_fifo BIGINT,
+  OUT tx_frame BIGINT,
+  OUT tx_compressed BIGINT,
+  OUT tx_multicast BIGINT
+)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'pgnodemx_network_stats'
+LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;

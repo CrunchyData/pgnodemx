@@ -54,7 +54,17 @@ SELECT envvar_text('PGDATA');
 SELECT envvar_bigint('PGPORT');
 
 SELECT * FROM proc_meminfo();
+
 SELECT * FROM fsinfo(current_setting('data_directory'));
 SELECT pg_size_pretty(total_bytes) AS total_size,
        pg_size_pretty(available_bytes) AS available_size
 FROM fsinfo(current_setting('data_directory'));
+
+SELECT * FROM network_stats();
+SELECT interface,
+       sum(rx_bytes) AS rx_bytes,
+       sum(rx_packets) AS rx_packets,
+       sum(tx_bytes) AS tx_bytes,
+       sum(tx_packets) AS tx_packets
+FROM network_stats()
+GROUP BY interface;
