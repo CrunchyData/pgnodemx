@@ -565,8 +565,37 @@ get_cgpath_value(char *key)
 
 	for (i = 0; i < cgpath->nkvp; ++i)
 	{
-		if (strcmp(cgpath->keys[i], key) == 0)
-			return pstrdup(cgpath->values[i]);
+		char   *p;
+		char   *controller = cgpath->keys[i];
+		char   *path = cgpath->values[i];
+
+		/*
+		 * If controller name cgpath->keys[i] includes ",",
+		 * split into multiple subkeys and check each one.
+		 */
+		p = strchr(controller, ',');
+		if (!p)
+		{
+			/* no subkeys, just do it */
+			if (strcmp(controller, key) == 0)
+				return pstrdup(path);
+		}
+		else
+		{
+			/*
+			 * Multiple subkeys. Check each one, but first get a
+			 * copy we can mutate.
+			 */
+			char   *buf = pstrdup(controller);
+			char   *token;
+			char   *lstate;
+
+			for (token = strtok_r(buf, ",", &lstate); token; token = strtok_r(NULL, ",", &lstate))
+			{
+				if (strcmp(token, key) == 0)
+					return pstrdup(path);
+			}
+		}
 	}
 
 	/* bad request if not found */

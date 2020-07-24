@@ -1,4 +1,4 @@
-/* beginnings of a regression test */
+/* beginnings of a cgroup v2 regression test */
 
 CREATE EXTENSION pgnodemx;
 SELECT cgroup_mode();
