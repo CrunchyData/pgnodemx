@@ -130,7 +130,6 @@ LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 CREATE FUNCTION network_stats
 (
   OUT interface TEXT,
-  OUT pid BIGINT,
   OUT rx_bytes BIGINT,
   OUT rx_packets BIGINT,
   OUT rx_errs BIGINT,

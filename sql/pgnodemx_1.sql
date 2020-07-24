@@ -54,9 +54,8 @@ FROM fsinfo(current_setting('data_directory'));
 
 SELECT * FROM network_stats();
 SELECT interface,
-       sum(rx_bytes) AS rx_bytes,
-       sum(rx_packets) AS rx_packets,
-       sum(tx_bytes) AS tx_bytes,
-       sum(tx_packets) AS tx_packets
-FROM network_stats()
-GROUP BY interface;
+       rx_bytes,
+       rx_packets,
+       tx_bytes,
+       tx_packets
+FROM network_stats();

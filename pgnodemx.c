@@ -59,7 +59,7 @@ PG_MODULE_MAGIC;
   DatumGetInt64(DirectFunctionCall1(pg_size_bytes, PointerGetDatum(cstring_to_text(arg1))))
 /* various /proc/ source files */
 #define meminfo		"/proc/meminfo"
-#define netstatfmt	"/proc/%ld/net/dev"
+#define netstat		"/proc/self/net/dev"
 
 /* function return signatures */
 Oid text_sig[] = {TEXTOID};
@@ -71,7 +71,7 @@ Oid text_text_float8_sig[] = {TEXTOID, TEXTOID, FLOAT8OID};
 Oid text_9_bigint_text_sig[] = {TEXTOID, INT8OID, INT8OID, INT8OID,
 										 INT8OID, INT8OID, INT8OID,
 										 INT8OID, INT8OID, INT8OID, TEXTOID};
-Oid text_17_bigint_sig[] = {TEXTOID, INT8OID,
+Oid text_16_bigint_sig[] = {TEXTOID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
@@ -629,84 +629,64 @@ pgnodemx_fsinfo(PG_FUNCTION_ARGS)
 	return form_srf(fcinfo, values, nrow, ncol, text_9_bigint_text_sig);
 }
 
+#define HDR_LINES	2
 PG_FUNCTION_INFO_V1(pgnodemx_network_stats);
 Datum
 pgnodemx_network_stats(PG_FUNCTION_ARGS)
 {
 	int			nrow = 0;
-	int			crow = 0;
-	int			ncol = 18;
-	int			npids;
-	int64	   *cgpids;
-	int			i;
+	int			ncol = 17;
 	char	 ***values = (char ***) palloc(0);
+	char	  **lines;
+	int			nlines;
 
-	/* get list of all cgroup pids and pid count */
-	npids = cgmembers(&cgpids);
-	for (i = 0; i < npids; ++i)
+	/* read /proc/self/net/dev file */
+	lines = read_nlsv(netstat, &nlines);
+
+	/*
+	 * These files have two rows we want to skip at the top.
+	 * Lines of interest are 17 space separated columns.
+	 * First column is the interface name. It has a trailing colon.
+	 * Rest of the columns are bigints.
+	 */
+	if (nlines > HDR_LINES)
 	{
-		StringInfo	ftr = makeStringInfo();
-		int			nlines;
-		char	  **lines;
+		int			j;
+		char	  **toks;
 
-		/* read each /proc/<pid>/net/dev file */
-		appendStringInfo(ftr, netstatfmt, cgpids[i]);
-		lines = read_nlsv(ftr->data, &nlines);
-
-		/*
-		 * These files have two rows we want to skip at the top.
-		 * Lines of interest are 17 space separated columns.
-		 * First column is the interface name. It has a trailing colon.
-		 * Rest of the columns are bigints.
-		 * We want to insert the pid as column two in the output.
-		 */
-		if (nlines > 2)
+		nrow += (nlines - HDR_LINES);
+		values = (char ***) repalloc(values, nrow * sizeof(char **));
+		for (j = HDR_LINES; j < nlines; ++j)
 		{
-			int			j;
-			char	  **toks;
 
-			nrow += (nlines - 2);
-			values = (char ***) repalloc(values, nrow * sizeof(char **));
-			for (j = 2; j < nlines; ++j)
-			{
+			size_t		len;
+			int			ntok;
+			int			k;
 
-				size_t		len;
-				int			ntok;
-				int			k;
+			values[j - HDR_LINES] = (char **) palloc(ncol * sizeof(char *));
 
-				values[crow] = (char **) palloc(ncol * sizeof(char *));
+			toks = parse_ss_line(lines[j], &ntok);
+			if (ntok != ncol)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
+							   ntok, netstat, j + 1)));
 
-				toks = parse_ss_line(lines[j], &ntok);
-				if (ntok != ncol - 1)
-					ereport(ERROR,
-							(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-							errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
-								   ntok, ftr->data, j + 1)));
+			/* token 1 will end with an extraneous colon - strip that */
+			len = strlen(toks[0]) - 1;
+			toks[0][len] = '\0';
+			values[j - HDR_LINES][0] = pstrdup(toks[0]);
 
-				/* token 1 will end with an extraneous colon - strip that */
-				len = strlen(toks[0]) - 1;
-				toks[0][len] = '\0';
-				values[crow][0] = pstrdup(toks[0]);
-
-				/* second column is our pid */
-				values[crow][1] = pstrdup(int64_to_string(cgpids[i]));
-
-				/* third through eighteenth columns are rx and tx stats */
-				for (k = 1; k < ncol - 1; ++k)
-					values[crow][k + 1] = pstrdup(toks[k]);
-
-				++crow;
-			}
+			/* second through seventeenth columns are rx and tx stats */
+			for (k = 1; k < ncol; ++k)
+				values[j - HDR_LINES][k] = pstrdup(toks[k]);
 		}
-		else
-			ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					errmsg("pgnodemx: no data in file: %s ", ftr->data)));
 	}
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: no data in file: %s ", netstat)));
 
-	if (crow == 0)
-		return form_srf(fcinfo, NULL, 0, ncol, text_17_bigint_sig);
-
-	return form_srf(fcinfo, values, nrow, ncol, text_17_bigint_sig);
+	return form_srf(fcinfo, values, nrow, ncol, text_16_bigint_sig);
 }
 
