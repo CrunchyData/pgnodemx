@@ -1,6 +1,7 @@
 /* beginnings of a cgroup v2 regression test */
 
 \pset pager off
+\x auto
 DROP EXTENSION IF EXISTS pgnodemx;
 
 CREATE EXTENSION pgnodemx;

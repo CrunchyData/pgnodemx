@@ -330,12 +330,18 @@ set_cgmode(void)
 		}
 	}
 	else
-		ereport(ERROR,
+	{
+		/*
+		 * If cgrouproot is not actually a cgroup mount, there is not
+		 * much else we can do besides disabling cgroupfs access.
+		 */
+		ereport(WARNING,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("pgnodemx: unexpected mount type on cgroup root %s", cgrouproot)));
-
-	/* never reached */
-	return false;
+				errmsg("pgnodemx: unexpected mount type on cgroup root %s", cgrouproot),
+				errdetail("disabling cgroup virtual file system access")));
+		cgmode = MemoryContextStrdup(TopMemoryContext, CGROUP_DISABLED);
+		return false;
+	}
 }
 
 /*
