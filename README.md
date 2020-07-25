@@ -41,8 +41,9 @@ cgroup virtual files fall into (at least) the following general categories, each
 In each case, the filename must be in the form ```<controller>.<metric>```, e.g. ```memory.stat```. For more information about cgroup v2 virtual files, See https://www.kernel.org/doc/Documentation/cgroup-v2.txt.
 
 ### Get status of cgroup support
-
-* ```SELECT current_setting('pgnodemx.cgroupfs_enabled');```
+```
+SELECT current_setting('pgnodemx.cgroupfs_enabled');
+```
 * Returns boolean result ("on"/"off").
 * This value may be explicitly set in postgresql.conf
 * However the extension will disable it at runtime if the location pointed to by pgnodemx.cgrouproot does not exist or is not a valid cgroup v1 or v2 mount.
