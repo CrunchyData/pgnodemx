@@ -40,6 +40,7 @@
 #include "utils/int8.h"
 
 #include "fileutils.h"
+#include "kdapi.h"
 #include "parseutils.h"
 
 /*
@@ -159,6 +160,82 @@ parse_ss_line(char *line, int *ntok)
 		values[*ntok] = pstrdup(token);
 		*ntok += 1;
 	}
+
+	return values;
+}
+
+/*
+ * strip_quotes (lifted and modifed from src/bin/psql/stringutils)
+ *
+ * Remove quotes from the string at *source.  Leading and trailing occurrences
+ * of 'quote' are removed.
+ *
+ * Note that the source string is overwritten in-place.
+ */
+void
+strip_quotes(char *source, char quote)
+{
+	char	   *src;
+	char	   *dst;
+
+	Assert(source != NULL);
+	Assert(quote != '\0');
+
+	src = dst = source;
+
+	if (*src && *src == quote)
+		src++;					/* skip leading quote */
+
+	while (*src)
+	{
+		char		c = *src;
+
+		if (c == quote && src[1] == '\0')
+			break;				/* skip trailing quote */
+
+		*dst++ = *src++;
+	}
+
+	*dst = '\0';
+}
+
+/*
+ * Parse tokens from a "key equals quoted value" line.
+ * Examples (from Kubernetes Downward API):
+ * 
+ *   cluster="test-cluster1"
+ *   rack="rack-22"
+ *   zone="us-est-coast"
+ * 
+ * Return two tokens; strip the quotes around the second one.
+ * If exactly two tokens are not found, throw an error.
+ */
+char **
+parse_keqv_line(char *line)
+{
+	int		ntok = 0;
+	char   *token;
+	char   *lstate;
+	char  **values = (char **) palloc(0);
+
+	for (token = strtok_r(line, "=", &lstate); token; token = strtok_r(NULL, "=", &lstate))
+	{
+		values = (char **) repalloc(values, (ntok + 1) * sizeof(char *));
+
+		/* strip quotes around the second token */
+		if (ntok == 1)
+			strip_quotes(token, '"');
+
+		values[ntok] = pstrdup(token);
+		ntok += 1;
+	}
+
+	/* line should have exactly two tokens */
+	if (ntok != 2)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: incorrect format for key equals quoted value line"),
+				errdetail("pgnodemx: expected 2 tokens, found %d", ntok)));
 
 	return values;
 }

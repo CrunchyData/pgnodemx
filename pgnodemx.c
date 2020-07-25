@@ -33,6 +33,8 @@
 #error "pgnodemx only builds with PostgreSQL 10 or later"
 #endif
 
+#include <unistd.h>
+
 #include "catalog/pg_authid.h"
 #if PG_VERSION_NUM >= 110000
 #include "catalog/pg_type_d.h"
@@ -50,6 +52,7 @@
 #include "envutils.h"
 #include "fileutils.h"
 #include "genutils.h"
+#include "kdapi.h"
 #include "parseutils.h"
 
 PG_MODULE_MAGIC;
@@ -86,8 +89,18 @@ Datum pgnodemx_cgroup_scalar_float8(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_scalar_text(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_setof_bigint(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_setof_text(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_array_text(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_array_bigint(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_setof_kv(PG_FUNCTION_ARGS);
+Datum pgnodemx_cgroup_setof_ksv(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_setof_nkv(PG_FUNCTION_ARGS);
+Datum pgnodemx_envvar_text(PG_FUNCTION_ARGS);
+Datum pgnodemx_envvar_bigint(PG_FUNCTION_ARGS);
+Datum pgnodemx_proc_meminfo(PG_FUNCTION_ARGS);
+Datum pgnodemx_fsinfo(PG_FUNCTION_ARGS);
+Datum pgnodemx_network_stats(PG_FUNCTION_ARGS);
+Datum pgnodemx_kdapi_setof_kv(PG_FUNCTION_ARGS);
+Datum pgnodemx_kdapi_scalar_bigint(PG_FUNCTION_ARGS);
 
 /*
  * Entrypoint of this module.
@@ -108,17 +121,27 @@ _PG_init(void)
 
 	DefineCustomBoolVariable("pgnodemx.cgroupfs_enabled",
 							 "True if cgroup virtual file system access is enabled",
-							 NULL, &cgroupfs_enabled, true, PGC_POSTMASTER /* PGC_SIGHUP */,
+							 NULL, &cgroupfs_enabled, true, PGC_POSTMASTER,
 							 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable("pgnodemx.containerized",
 							 "True if operating inside a container",
-							 NULL, &containerized, false, PGC_POSTMASTER /* PGC_SIGHUP */,
+							 NULL, &containerized, false, PGC_POSTMASTER,
 							 0, NULL, NULL, NULL);
 
 	DefineCustomStringVariable("pgnodemx.cgrouproot",
 							   "Path to root cgroup",
-							   NULL, &cgrouproot, "/sys/fs/cgroup", PGC_POSTMASTER /* PGC_SIGHUP */,
+							   NULL, &cgrouproot, "/sys/fs/cgroup", PGC_POSTMASTER,
+							   0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable("pgnodemx.kdapi_enabled",
+							 "True if Kubernetes Downward API file system access is enabled",
+							 NULL, &kdapi_enabled, true, PGC_POSTMASTER,
+							 0, NULL, NULL, NULL);
+
+	DefineCustomStringVariable("pgnodemx.kdapi_path",
+							   "Path to Kubernetes Downward API files",
+							   NULL, &kdapi_path, "/etc/podinfo", PGC_POSTMASTER,
 							   0, NULL, NULL, NULL);
 
 	/* don't try to set cgmode unless cgroupfs is enabled */
@@ -136,6 +159,21 @@ _PG_init(void)
 		 * cgrouproot, then we must force disable cgroup functions. 
 		 */
 		cgroupfs_enabled = false;
+	}
+
+	/* force kdapi disabled if path does not exist */
+	if (access(kdapi_path, F_OK) != 0)
+	{
+		/*
+		 * If kdapi_path does not exist, there is not
+		 * much else we can do besides disabling kdapi access.
+		 */
+		ereport(WARNING,
+				(errcode_for_file_access(),
+				errmsg("pgnodemx: Kubernetes Downward API path %s does not exist: %m", kdapi_path),
+				errdetail("disabling Kubernetes Downward API file system access")));
+
+		kdapi_enabled = false;
 	}
 
     inited = true;
@@ -690,3 +728,57 @@ pgnodemx_network_stats(PG_FUNCTION_ARGS)
 	return form_srf(fcinfo, values, nrow, ncol, text_16_bigint_sig);
 }
 
+PG_FUNCTION_INFO_V1(pgnodemx_kdapi_setof_kv);
+Datum
+pgnodemx_kdapi_setof_kv(PG_FUNCTION_ARGS)
+{
+	char	   *fqpath;
+	int			nlines;
+	char	  **lines;
+	int			ncol = 2;
+
+	if (!kdapi_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, text_text_sig);
+
+	fqpath = get_fq_kdapi_path(fcinfo);
+	lines = read_nlsv(fqpath, &nlines);
+	if (nlines > 0)
+	{
+		char	 ***values;
+		int			nrow = nlines;
+		int			i;
+
+		values = (char ***) palloc(nrow * sizeof(char **));
+		for (i = 0; i < nrow; ++i)
+		{
+			/*
+			 * parse_keqv_line always returns two tokens
+			 * or throws an error if it cannot.
+			 */
+			values[i] = parse_keqv_line(lines[i]);
+		}
+
+		return form_srf(fcinfo, values, nrow, ncol, text_text_sig);
+	}
+
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pgnodemx: no lines in Kubernetes Downward API file: %s ", fqpath)));
+
+	/* never reached */
+	return (Datum) 0;
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_kdapi_scalar_bigint);
+Datum
+pgnodemx_kdapi_scalar_bigint(PG_FUNCTION_ARGS)
+{
+	char   *fqpath;
+
+	if (!kdapi_enabled)
+		PG_RETURN_NULL();
+
+	fqpath = get_fq_kdapi_path(fcinfo);
+
+	PG_RETURN_INT64(get_int64_from_file(fqpath));
+}

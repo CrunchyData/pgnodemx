@@ -1,5 +1,5 @@
 MODULE_big	= pgnodemx
-OBJS		= pgnodemx.o cgroup.o envutils.o fileutils.o genutils.o parseutils.o
+OBJS		= pgnodemx.o cgroup.o envutils.o fileutils.o genutils.o kdapi.o parseutils.o
 PG_CPPFLAGS	= -I$(libpq_srcdir)
 EXTENSION	= pgnodemx
 DATA		= pgnodemx--1.0.sql

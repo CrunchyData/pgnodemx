@@ -42,6 +42,8 @@ extern char **read_nlsv(char *ftr, int *nlines);
 extern char *read_one_nlsv(char *ftr);
 extern kvpairs *parse_nested_keyed_line(char *line);
 extern char **parse_ss_line(char *line, int *ntok);
+extern void strip_quotes(char *source, char quote);
+extern char **parse_keqv_line(char *line);
 extern int64 get_int64_from_file(char *ftr);
 extern double get_double_from_file(char *ftr);
 extern char *get_string_from_file(char *ftr);

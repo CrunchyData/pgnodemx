@@ -68,3 +68,9 @@ SELECT interface,
        tx_bytes,
        tx_packets
 FROM network_stats();
+
+SELECT * FROM kdapi_setof_kv('labels');
+SELECT * FROM kdapi_scalar_bigint('cpu_limit');
+SELECT * FROM kdapi_scalar_bigint('cpu_request');
+SELECT * FROM kdapi_scalar_bigint('mem_limit');
+SELECT * FROM kdapi_scalar_bigint('mem_request');

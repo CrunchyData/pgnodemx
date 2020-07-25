@@ -1,7 +1,8 @@
 /*
- * cgroup.h
+ * kdapi.h
  *
- * Functions specific to capture and manipulation of cgroup virtual files
+ * Functions specific to capture and manipulation of Kubernetes
+ * Downward API files
  * 
  * Joe Conway <joe@crunchydata.com>
  *
@@ -28,33 +29,15 @@
  * MODIFICATIONS.
  */
 
-#ifndef CGROUP_H
-#define CGROUP_H
+#ifndef KDAPI_H
+#define KDAPI_H
 
 #include "fmgr.h"
-#include "parseutils.h"
 
-#define PROC_CGROUP_FILE	"/proc/self/cgroup"
-#define CGROUP_V1			"legacy"
-#define CGROUP_V2			"unified"
-#define CGROUP_HYBRID		"hybrid"
-#define CGROUP_DISABLED		"disabled"
-#define is_cgroup_v1		(strcmp(cgmode, CGROUP_V1) == 0)
-#define is_cgroup_v2		(strcmp(cgmode, CGROUP_V2) == 0)
-#define is_cgroup_hy		(strcmp(cgmode, CGROUP_HYBRID) == 0)
-
-extern bool set_cgmode(void);
-extern void set_containerized(void);
-extern void set_cgpath(void);
-extern int cgmembers(int64 **pids);
-extern char *get_cgpath_value(char *key);
-extern char *get_fq_cgroup_path(FunctionCallInfo fcinfo);
+char *get_fq_kdapi_path(FunctionCallInfo fcinfo);
 
 /* exported globals */
-extern char *cgmode;
-extern kvpairs *cgpath;
-extern char *cgrouproot;
-extern bool containerized;
-extern bool cgroupfs_enabled;
+extern char *kdapi_path;
+extern bool kdapi_enabled;
 
-#endif	/* CGROUP_H */
+#endif	/* KDAPI_H */
