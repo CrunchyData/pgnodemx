@@ -83,7 +83,7 @@ CREATE FUNCTION cgroup_setof_nkv
   IN filename TEXT,
   OUT key TEXT,
   OUT subkey TEXT,
-  OUT avg10 FLOAT8
+  OUT val FLOAT8
 )
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_cgroup_setof_nkv'
@@ -108,26 +108,7 @@ RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_proc_meminfo'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
-CREATE FUNCTION fsinfo
-(
-  IN pathname TEXT,
-  OUT type TEXT,
-  OUT block_size BIGINT,
-  OUT blocks BIGINT,
-  OUT total_bytes BIGINT,
-  OUT free_blocks BIGINT,
-  OUT free_bytes BIGINT,
-  OUT available_blocks BIGINT,
-  OUT available_bytes BIGINT,
-  OUT total_file_nodes BIGINT,
-  OUT free_file_nodes BIGINT,
-  OUT mount_flags TEXT
-)
-RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pgnodemx_fsinfo'
-LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
-
-CREATE FUNCTION network_stats
+CREATE FUNCTION proc_network_stats
 (
   OUT interface TEXT,
   OUT rx_bytes BIGINT,
@@ -149,6 +130,25 @@ CREATE FUNCTION network_stats
 )
 RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_network_stats'
+LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
+
+CREATE FUNCTION fsinfo
+(
+  IN pathname TEXT,
+  OUT type TEXT,
+  OUT block_size BIGINT,
+  OUT blocks BIGINT,
+  OUT total_bytes BIGINT,
+  OUT free_blocks BIGINT,
+  OUT free_bytes BIGINT,
+  OUT available_blocks BIGINT,
+  OUT available_bytes BIGINT,
+  OUT total_file_nodes BIGINT,
+  OUT free_file_nodes BIGINT,
+  OUT mount_flags TEXT
+)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'pgnodemx_fsinfo'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
 CREATE FUNCTION kdapi_scalar_bigint(TEXT)

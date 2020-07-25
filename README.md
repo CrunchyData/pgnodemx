@@ -12,36 +12,47 @@ Executing role must have been granted pg_monitor membership.
 
 cgroup virtual files fall into (at least) the following general categories, each with a generic SQL access function:
 
-* BIGINT single line scalar values - ```cgroup_scalar_bigint(filename text)```
+* BIGINT single line scalar values - ```SELECT cgroup_scalar_bigint(filename);```
   * cgroup v2 examples: cgroup.freeze, cgroup.max.depth, cgroup.max.descendants, cpu.weight, cpu.weight.nice, memory.current, memory.high, memory.low, memory.max, memory.min, memory.oom.group, memory.swap.current, memory.swap.max, pids.current, pids.max
-* FLOAT8 single line scalar values - ```cgroup_scalar_float8(filename text)```
+* FLOAT8 single line scalar values - ```SELECT cgroup_scalar_float8(filename);```
   * cgroup v2 examples: cpu.uclamp.max, cpu.uclamp.min
-* TEXT single line scalar values - ```cgroup_scalar_text(filename text)```
+* TEXT single line scalar values - ```SELECT cgroup_scalar_text(filename);```
   * cgroup v2 examples: cgroup.type
 
-* SETOF(BIGINT) multiline scalar values - ```cgroup_setof_bigint(filename text)```
+* SETOF(BIGINT) multiline scalar values - ```SELECT * FROM cgroup_setof_bigint(filename);```
   * cgroup v2 examples: cgroup.procs, cgroup.threads
-* SETOF(TEXT) multiline scalar values - ```cgroup_setof_text(filename text)```
+* SETOF(TEXT) multiline scalar values - ```SELECT * FROM cgroup_setof_text(filename);```
   * cgroup v2 examples: none
 
-* ARRAY[BIGINT] space separated values - ```cgroup_array_bigint(filename text)```
+* ARRAY[BIGINT] space separated values - ```SELECT cgroup_array_bigint(filename);```
   * cgroup v2 examples: cpu.max
-* ARRAY[TEXT] space separated values - ```cgroup_array_text(filename text)```
+* ARRAY[TEXT] space separated values - ```SELECT cgroup_array_text(filename)```
   * cgroup v2 examples: cgroup.controllers, cgroup.subtree_control
 
-* SETOF(TEXT, BIGINT) flat keyed - ```cgroup_setof_kv(filename text)```
+* SETOF(TEXT, BIGINT) flat keyed - ```SELECT * FROM cgroup_setof_kv(filename);```
   * cgroup v2 examples: cgroup.events, cgroup.stat, cpu.stat, io.pressure, io.weight, memory.events, memory.events.local, memory.stat, memory.swap.events, pids.events
 
-* SETOF(TEXT, TEXT, FLOAT8) nested keyed - ```cgroup_setof_nkv(filename text)```
+* SETOF(TEXT, TEXT, BIGINT) key/subkey/value space separated - ```SELECT * FROM cgroup_setof_ksv(filename);```
+ * cgroup v1 examples: blkio.throttle.io_serviced and blkio.throttle.io_service_bytes
+
+* SETOF(TEXT, TEXT, FLOAT8) nested keyed - ```SELECT * FROM cgroup_setof_nkv(filename);```
   * cgroup v2 examples: memory.pressure, cpu.pressure, io.max, io.stat
 
 In each case, the filename must be in the form ```<controller>.<metric>```, e.g. ```memory.stat```. For more information about cgroup v2 virtual files, See https://www.kernel.org/doc/Documentation/cgroup-v2.txt.
+
+### Get status of cgroup support
+
+* ```SELECT current_setting('pgnodemx.cgroupfs_enabled');```
+* Returns boolean result ("on"/"off").
+* This value may be explicitly set in postgresql.conf
+* However the extension will disable it at runtime if the location pointed to by pgnodemx.cgrouproot does not exist or is not a valid cgroup v1 or v2 mount.
 
 ### Get current cgroup mode
 ```
 SELECT cgroup_mode();
 ```
 * Returns the current cgroup mode. Possible values are "legacy", "unified", "hybrid", and "disabled". These correspond to cgroup v1, cgroup v2, mixed, and disabled, respectively.
+* Currently "hybrid" mode is not supported; it might be in the future.
 
 ### Determine if Running Containerized
 ```
@@ -76,6 +87,40 @@ SELECT envvar_bigint('PGPORT');
 ```
 * Returns the value of requested environment variable as BIGINT
 
+## ```/proc``` Related Functions
+
+### Get "/proc/meminfo" as a virtual table
+
+* ```SELECT * FROM proc_meminfo();```
+
+### Get "/proc/self/net/dev" as a virtual table
+
+* ```SELECT * FROM proc_network_stats();```
+
+## System Information Related Functions
+
+### Get file system information as a virtual table
+
+* ```SELECT * FROM fsinfo(path text);```
+* Returns type, block_size, blocks, total_bytes, free_blocks, free_bytes, available_blocks, available_bytes, total_file_nodes, free_file_nodes, and mount_flags for the file system on which ```path``` is mounted.
+
+## Kubernetes DownwardAPI Related Functions
+
+### Get status of kdapi_enabled
+
+* ```SELECT current_setting('pgnodemx.kdapi_enabled');```
+* Returns boolean result ("on"/"off").
+* This value may be explicitly set in postgresql.conf
+* However the extension will disable it at runtime if the location pointed to by pgnodemx.kdapi_path does not exist.
+
+### Access "key equals quoted value" files
+
+* ```SELECT * FROM kdapi_setof_kv('filename');```
+
+### Get scalar BIGINT from file
+
+* ```SELECT kdapi_scalar_bigint('filename text');```
+
 ## Configuration
 
 * Add pgnodemx to shared_preload_libraries in postgresql.conf.
@@ -84,17 +129,24 @@ shared_preload_libraries = 'pgnodemx'
 ```
 * The following custom parameters may be set. The values shown are defaults. If the default values work for you, there is no need to add these to ```postgresql.conf```.
 ```
+# enable or disable the cgroup facility
+pgnodemx.cgroupfs_enabled = on
 # force use of "containerized" assumptions for cgroup file paths
 pgnodemx.containerized = off
 # specify location of cgroup mount
 pgnodemx.cgrouproot = '/sys/fs/cgroup'
 # enable cgroup functions
 pgnodemx.cgroupfs_enabled = on
+# enable or disable the Kubernetes DownwardAPI facility
+pgnodemx.kdapi_enabled = on
+# specify location of Kubernetes DownwardAPI files
+pgnodemx.kdapi_path = '/etc/podinfo'
 ```
 Notes:
-* If ```pgnodemx.containerized``` is defined in ```postgresql.conf```, that value will override pgnodemx heuristics. When not specified, pgnodemx heuristics will determine if the value should be ```on``` or ```off``` at runtime.
 * If pgnodemx.cgroupfs_enabled is defined in ```postgresql.conf```, and set to ```off``` (or ```false```), then all cgroup* functions will return NULL, or zero rows, except cgroup_mode() which will return "disabled".
+* If ```pgnodemx.containerized``` is defined in ```postgresql.conf```, that value will override pgnodemx heuristics. When not specified, pgnodemx heuristics will determine if the value should be ```on``` or ```off``` at runtime.
 * If the location specified by ```pgnodemx.cgrouproot```, default or as set in ```postgresql.conf```, is not accessible (does not exist, or otherwise causes an error when accessed), then pgnodemx.cgroupfs_enabled is forced to ```off``` at runtime and all cgroup* functions will return NULL, or zero rows, except cgroup_mode() which will return "disabled".
+* If the location specified by ```pgnodemx.kdapi_path```, default or as set in ```postgresql.conf```, is not accessible (does not exist, or otherwise causes an error when accessed), then pgnodemx.kdapi_enabled is forced to ```off``` at runtime and all kdapi* functions will return NULL, or zero rows.
 
 ## Installation
 

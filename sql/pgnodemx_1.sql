@@ -53,16 +53,18 @@ SELECT pg_size_pretty(total_bytes) AS total_size,
        pg_size_pretty(available_bytes) AS available_size
 FROM fsinfo(current_setting('data_directory'));
 
-SELECT * FROM network_stats();
+SELECT * FROM proc_network_stats();
 SELECT interface,
        rx_bytes,
        rx_packets,
        tx_bytes,
        tx_packets
-FROM network_stats();
+FROM proc_network_stats();
 
 SELECT * FROM kdapi_setof_kv('labels');
 SELECT * FROM kdapi_setof_kv('annotations');
+SELECT replace(val,'\"','"')::jsonb FROM kdapi_setof_kv('annotations') WHERE key = 'status';
+
 SELECT * FROM kdapi_scalar_bigint('cpu_limit');
 SELECT * FROM kdapi_scalar_bigint('cpu_request');
 SELECT * FROM kdapi_scalar_bigint('mem_limit');
