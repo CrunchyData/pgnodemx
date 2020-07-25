@@ -33,7 +33,7 @@ cgroup virtual files fall into (at least) the following general categories, each
   * cgroup v2 examples: cgroup.events, cgroup.stat, cpu.stat, io.pressure, io.weight, memory.events, memory.events.local, memory.stat, memory.swap.events, pids.events
 
 * SETOF(TEXT, TEXT, BIGINT) key/subkey/value space separated - ```SELECT * FROM cgroup_setof_ksv(filename);```
- * cgroup v1 examples: blkio.throttle.io_serviced and blkio.throttle.io_service_bytes
+  * cgroup v1 examples: blkio.throttle.io_serviced and blkio.throttle.io_service_bytes
 
 * SETOF(TEXT, TEXT, FLOAT8) nested keyed - ```SELECT * FROM cgroup_setof_nkv(filename);```
   * cgroup v2 examples: memory.pressure, cpu.pressure, io.max, io.stat
@@ -245,3 +245,7 @@ Install the extension into your database:
 psql <database>
 CREATE EXTENSION pgnodemx;
 ```
+
+## TODO
+
+* Add cgroup v1 examples for the General Access functions
