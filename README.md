@@ -91,36 +91,42 @@ SELECT envvar_bigint('PGPORT');
 ## ```/proc``` Related Functions
 
 ### Get "/proc/meminfo" as a virtual table
-
-* ```SELECT * FROM proc_meminfo();```
+```
+SELECT * FROM proc_meminfo();
+```
 
 ### Get "/proc/self/net/dev" as a virtual table
-
-* ```SELECT * FROM proc_network_stats();```
+```
+SELECT * FROM proc_network_stats();
+```
 
 ## System Information Related Functions
 
 ### Get file system information as a virtual table
-
-* ```SELECT * FROM fsinfo(path text);```
+```
+SELECT * FROM fsinfo(path text);
+```
 * Returns type, block_size, blocks, total_bytes, free_blocks, free_bytes, available_blocks, available_bytes, total_file_nodes, free_file_nodes, and mount_flags for the file system on which ```path``` is mounted.
 
 ## Kubernetes DownwardAPI Related Functions
 
 ### Get status of kdapi_enabled
-
-* ```SELECT current_setting('pgnodemx.kdapi_enabled');```
+```
+SELECT current_setting('pgnodemx.kdapi_enabled');
+```
 * Returns boolean result ("on"/"off").
 * This value may be explicitly set in postgresql.conf
 * However the extension will disable it at runtime if the location pointed to by pgnodemx.kdapi_path does not exist.
 
 ### Access "key equals quoted value" files
-
-* ```SELECT * FROM kdapi_setof_kv('filename');```
+```
+SELECT * FROM kdapi_setof_kv('filename');
+```
 
 ### Get scalar BIGINT from file
-
-* ```SELECT kdapi_scalar_bigint('filename text');```
+```
+SELECT kdapi_scalar_bigint('filename text');
+```
 
 ## Configuration
 
