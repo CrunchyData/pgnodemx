@@ -4,7 +4,7 @@
 SQL functions that allow capture of node OS metrics from PostgreSQL
 
 ## Security
-Executing role must have been granted pg_monitor membership.
+Executing role must have been granted pg_monitor membership (pgmonitor for PostgreSQL version 9.6 and below - see Compatibility section below).
 
 ## cgroup Related Functions
 
@@ -169,7 +169,8 @@ Notes:
 
 ### Compatibility
 
-PostgreSQL version 10 or newer is required.
+* PostgreSQL version 9.5 or newer is required.
+* On PostgreSQL version 9.6 or earlier, a role called pgmonitor must be created, and the user calling these functions must be granted that role.
 
 ### Compile and Install
 
