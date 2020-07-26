@@ -64,7 +64,7 @@ static void init_or_reset_cgpath(void);
 /* custom GUC vars */
 bool	containerized = false;
 char *cgrouproot = NULL;
-bool cgroupfs_enabled = true;
+bool cgroup_enabled = true;
 
 /* module globals */
 char *cgmode = NULL;
@@ -285,7 +285,7 @@ set_cgmode(void)
 	 * If requested, directly set cgmode to disabled before
 	 * doing anything else.
 	 */
-	if (!cgroupfs_enabled)
+	if (!cgroup_enabled)
 	{
 		cgmode = MemoryContextStrdup(TopMemoryContext, CGROUP_DISABLED);
 		return false;
@@ -296,7 +296,7 @@ set_cgmode(void)
 	{
 		/*
 		 * If we have an error trying to stat cgrouproot, there is not
-		 * much else we can do besides disabling cgroupfs access.
+		 * much else we can do besides disabling cgroup access.
 		 */
 		ereport(WARNING,
 				(errcode_for_file_access(),
@@ -333,7 +333,7 @@ set_cgmode(void)
 	{
 		/*
 		 * If cgrouproot is not actually a cgroup mount, there is not
-		 * much else we can do besides disabling cgroupfs access.
+		 * much else we can do besides disabling cgroup access.
 		 */
 		ereport(WARNING,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),

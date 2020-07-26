@@ -42,7 +42,7 @@ In each case, the filename must be in the form ```<controller>.<metric>```, e.g.
 
 ### Get status of cgroup support
 ```
-SELECT current_setting('pgnodemx.cgroupfs_enabled');
+SELECT current_setting('pgnodemx.cgroup_enabled');
 ```
 * Returns boolean result ("on"/"off").
 * This value may be explicitly set in postgresql.conf
@@ -137,22 +137,22 @@ shared_preload_libraries = 'pgnodemx'
 * The following custom parameters may be set. The values shown are defaults. If the default values work for you, there is no need to add these to ```postgresql.conf```.
 ```
 # enable or disable the cgroup facility
-pgnodemx.cgroupfs_enabled = on
+pgnodemx.cgroup_enabled = on
 # force use of "containerized" assumptions for cgroup file paths
 pgnodemx.containerized = off
 # specify location of cgroup mount
 pgnodemx.cgrouproot = '/sys/fs/cgroup'
 # enable cgroup functions
-pgnodemx.cgroupfs_enabled = on
+pgnodemx.cgroup_enabled = on
 # enable or disable the Kubernetes DownwardAPI facility
 pgnodemx.kdapi_enabled = on
 # specify location of Kubernetes DownwardAPI files
 pgnodemx.kdapi_path = '/etc/podinfo'
 ```
 Notes:
-* If pgnodemx.cgroupfs_enabled is defined in ```postgresql.conf```, and set to ```off``` (or ```false```), then all cgroup* functions will return NULL, or zero rows, except cgroup_mode() which will return "disabled".
+* If pgnodemx.cgroup_enabled is defined in ```postgresql.conf```, and set to ```off``` (or ```false```), then all cgroup* functions will return NULL, or zero rows, except cgroup_mode() which will return "disabled".
 * If ```pgnodemx.containerized``` is defined in ```postgresql.conf```, that value will override pgnodemx heuristics. When not specified, pgnodemx heuristics will determine if the value should be ```on``` or ```off``` at runtime.
-* If the location specified by ```pgnodemx.cgrouproot```, default or as set in ```postgresql.conf```, is not accessible (does not exist, or otherwise causes an error when accessed), then pgnodemx.cgroupfs_enabled is forced to ```off``` at runtime and all cgroup* functions will return NULL, or zero rows, except cgroup_mode() which will return "disabled".
+* If the location specified by ```pgnodemx.cgrouproot```, default or as set in ```postgresql.conf```, is not accessible (does not exist, or otherwise causes an error when accessed), then pgnodemx.cgroup_enabled is forced to ```off``` at runtime and all cgroup* functions will return NULL, or zero rows, except cgroup_mode() which will return "disabled".
 * If the location specified by ```pgnodemx.kdapi_path```, default or as set in ```postgresql.conf```, is not accessible (does not exist, or otherwise causes an error when accessed), then pgnodemx.kdapi_enabled is forced to ```off``` at runtime and all kdapi* functions will return NULL, or zero rows.
 
 ## Installation

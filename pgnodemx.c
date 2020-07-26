@@ -119,9 +119,9 @@ _PG_init(void)
 		ereport(ERROR, (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						errmsg("pgnodemx: must be loaded via shared_preload_libraries")));
 
-	DefineCustomBoolVariable("pgnodemx.cgroupfs_enabled",
+	DefineCustomBoolVariable("pgnodemx.cgroup_enabled",
 							 "True if cgroup virtual file system access is enabled",
-							 NULL, &cgroupfs_enabled, true, PGC_POSTMASTER,
+							 NULL, &cgroup_enabled, true, PGC_POSTMASTER,
 							 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable("pgnodemx.containerized",
@@ -144,7 +144,7 @@ _PG_init(void)
 							   NULL, &kdapi_path, "/etc/podinfo", PGC_POSTMASTER,
 							   0, NULL, NULL, NULL);
 
-	/* don't try to set cgmode unless cgroupfs is enabled */
+	/* don't try to set cgmode unless cgroup is enabled */
 	if (set_cgmode())
 	{
 		/* must determine if containerized before setting cgpath */
@@ -154,11 +154,11 @@ _PG_init(void)
 	else
 	{
 		/*
-		 * If cgmode cannot be set, either because cgroupfs_enabled is
+		 * If cgmode cannot be set, either because cgroup_enabled is
 		 * already set to false, or because of an error trying to stat
 		 * cgrouproot, then we must force disable cgroup functions. 
 		 */
-		cgroupfs_enabled = false;
+		cgroup_enabled = false;
 	}
 
 	/* force kdapi disabled if path does not exist */
@@ -184,8 +184,8 @@ Datum
 pgnodemx_cgroup_mode(PG_FUNCTION_ARGS)
 {
 	/*
-	 * Do not check cgroupfs_enabled here; this is the one cgroup
-	 * function which *should* work when cgroupfs is disabled.
+	 * Do not check cgroup_enabled here; this is the one cgroup
+	 * function which *should* work when cgroup is disabled.
 	 */
 
 	PG_RETURN_TEXT_P(cstring_to_text(cgmode));
@@ -200,7 +200,7 @@ pgnodemx_cgroup_path(PG_FUNCTION_ARGS)
 	int		ncol = 2;
 	int		i;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		return form_srf(fcinfo, NULL, 0, ncol, text_text_sig);
 
 	nrow = cgpath->nkvp;
@@ -229,7 +229,7 @@ pgnodemx_cgroup_process_count(PG_FUNCTION_ARGS)
 {
 	int64	   *cgpids;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		PG_RETURN_NULL();
 
 	/* cgmembers returns pid count */
@@ -242,7 +242,7 @@ pgnodemx_cgroup_scalar_bigint(PG_FUNCTION_ARGS)
 {
 	char   *fqpath;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		PG_RETURN_NULL();
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -256,7 +256,7 @@ pgnodemx_cgroup_scalar_float8(PG_FUNCTION_ARGS)
 {
 	char   *fqpath;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		PG_RETURN_NULL();
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -270,7 +270,7 @@ pgnodemx_cgroup_scalar_text(PG_FUNCTION_ARGS)
 {
 	char   *fqpath;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		PG_RETURN_NULL();
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -284,7 +284,7 @@ pgnodemx_cgroup_setof_bigint(PG_FUNCTION_ARGS)
 {
 	char	   *fqpath;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		return form_srf(fcinfo, NULL, 0, 1, bigint_sig);
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -297,7 +297,7 @@ pgnodemx_cgroup_setof_text(PG_FUNCTION_ARGS)
 {
 	char	   *fqpath;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		return form_srf(fcinfo, NULL, 0, 1, text_sig);
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -314,7 +314,7 @@ pgnodemx_cgroup_array_text(PG_FUNCTION_ARGS)
 	bool	isnull;
 	Datum	dvalue;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		PG_RETURN_NULL();
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -338,7 +338,7 @@ pgnodemx_cgroup_array_bigint(PG_FUNCTION_ARGS)
 	Datum	dvalue;
 	int		i;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		PG_RETURN_NULL();
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -368,7 +368,7 @@ pgnodemx_cgroup_setof_kv(PG_FUNCTION_ARGS)
 	char	  **lines;
 	int			ncol = 2;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		return form_srf(fcinfo, NULL, 0, ncol, text_bigint_sig);
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -422,7 +422,7 @@ pgnodemx_cgroup_setof_ksv(PG_FUNCTION_ARGS)
 	char	  **lines;
 	int			ncol = 3;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		return form_srf(fcinfo, NULL, 0, ncol, text_text_bigint_sig);
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -477,7 +477,7 @@ pgnodemx_cgroup_setof_nkv(PG_FUNCTION_ARGS)
 	char	  **lines;
 	int			ncol = 3;
 
-	if (unlikely(!cgroupfs_enabled))
+	if (unlikely(!cgroup_enabled))
 		return form_srf(fcinfo, NULL, 0, ncol, text_text_float8_sig);
 
 	fqpath = get_fq_cgroup_path(fcinfo);

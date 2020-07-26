@@ -55,6 +55,6 @@ extern char *cgmode;
 extern kvpairs *cgpath;
 extern char *cgrouproot;
 extern bool containerized;
-extern bool cgroupfs_enabled;
+extern bool cgroup_enabled;
 
 #endif	/* CGROUP_H */
