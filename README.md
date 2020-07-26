@@ -95,6 +95,11 @@ SELECT envvar_bigint('PGPORT');
 SELECT * FROM proc_diskstats();
 ```
 
+### Get "/proc/self/mountinfo" as a virtual table
+```
+SELECT * FROM proc_mountinfo();
+```
+
 ### Get "/proc/meminfo" as a virtual table
 ```
 SELECT * FROM proc_meminfo();
@@ -111,7 +116,7 @@ SELECT * FROM proc_network_stats();
 ```
 SELECT * FROM fsinfo(path text);
 ```
-* Returns type, block_size, blocks, total_bytes, free_blocks, free_bytes, available_blocks, available_bytes, total_file_nodes, free_file_nodes, and mount_flags for the file system on which ```path``` is mounted.
+* Returns major_number, minor_number, type, block_size, blocks, total_bytes, free_blocks, free_bytes, available_blocks, available_bytes, total_file_nodes, free_file_nodes, and mount_flags for the file system on which ```path``` is mounted.
 
 ## Kubernetes DownwardAPI Related Functions
 

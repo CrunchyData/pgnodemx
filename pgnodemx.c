@@ -62,6 +62,7 @@ PG_MODULE_MAGIC;
   DatumGetInt64(DirectFunctionCall1(pg_size_bytes, PointerGetDatum(cstring_to_text(arg1))))
 /* various /proc/ source files */
 #define diskstats	"/proc/diskstats"
+#define mountinfo	"/proc/self/mountinfo"
 #define meminfo		"/proc/meminfo"
 #define netstat		"/proc/self/net/dev"
 
@@ -72,9 +73,11 @@ Oid text_text_sig[] = {TEXTOID, TEXTOID};
 Oid text_bigint_sig[] = {TEXTOID, INT8OID};
 Oid text_text_bigint_sig[] = {TEXTOID, TEXTOID, INT8OID};
 Oid text_text_float8_sig[] = {TEXTOID, TEXTOID, FLOAT8OID};
-Oid text_9_bigint_text_sig[] = {TEXTOID, INT8OID, INT8OID, INT8OID,
-										 INT8OID, INT8OID, INT8OID,
-										 INT8OID, INT8OID, INT8OID, TEXTOID};
+Oid _2_bigint_text_9_bigint_text_sig[] = {INT8OID, INT8OID, TEXTOID, INT8OID,
+										  INT8OID, INT8OID, INT8OID, INT8OID, INT8OID,
+										  INT8OID, INT8OID, INT8OID, TEXTOID};
+Oid _4_bigint_6_text_sig[] = {INT8OID, INT8OID, INT8OID, INT8OID,
+							  TEXTOID, TEXTOID, TEXTOID, TEXTOID, TEXTOID, TEXTOID};
 Oid bigint_bigint_text_11_bigint_sig[] = {INT8OID, INT8OID, TEXTOID,
 										  INT8OID, INT8OID, INT8OID, INT8OID,
 										  INT8OID, INT8OID, INT8OID, INT8OID,
@@ -677,6 +680,135 @@ pgnodemx_proc_diskstats(PG_FUNCTION_ARGS)
 	return form_srf(fcinfo, values, nrow, ncol, bigint_bigint_text_11_bigint_sig);
 }
 
+/*
+ * 3.5	/proc/<pid>/mountinfo - Information about mounts
+ * --------------------------------------------------------
+ * 
+ * This file contains lines of the form:
+ * 
+ * 36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw,errors=continue
+ * (1)(2)(3)   (4)   (5)      (6)      (7)   (8) (9)   (10)         (11)
+ * 
+ * (1) mount ID:  unique identifier of the mount (may be reused after umount)
+ * (2) parent ID:  ID of parent (or of self for the top of the mount tree)
+ * (3) major:minor:  value of st_dev for files on filesystem
+ * (4) root:  root of the mount within the filesystem
+ * (5) mount point:  mount point relative to the process's root
+ * (6) mount options:  per mount options
+ * (7) optional fields:  zero or more fields of the form "tag[:value]"
+ * (8) separator:  marks the end of the optional fields
+ * (9) filesystem type:  name of filesystem of the form "type[.subtype]"
+ * (10) mount source:  filesystem specific information or "none"
+ * (11) super options:  per super block options
+ * 
+ * Parsers should ignore all unrecognised optional fields.  Currently the
+ * possible optional fields are:
+ * 
+ * shared:X  mount is shared in peer group X
+ * master:X  mount is slave to peer group X
+ * propagate_from:X  mount is slave and receives propagation from peer group X (*)
+ * unbindable  mount is unbindable
+ * --------------------------------------------------------
+ * 
+ * Map fields 1 - 6, skip 7 (one or more) and 8, map 9 - 11 to a virtual
+ * table with 10 columns (split major:minor into two columns)
+ */
+PG_FUNCTION_INFO_V1(pgnodemx_proc_mountinfo);
+Datum
+pgnodemx_proc_mountinfo(PG_FUNCTION_ARGS)
+{
+	int			nrow = 0;
+	int			ncol = 10;
+	char	 ***values = (char ***) palloc(0);
+	char	  **lines;
+	int			nlines;
+
+	/* read /proc/self/net/dev file */
+	lines = read_nlsv(mountinfo, &nlines);
+
+	/*
+	 * These files are complicated - see above.
+	 */
+	if (nlines > 0)
+	{
+		int			j;
+		char	  **toks;
+
+		nrow = nlines;
+		values = (char ***) repalloc(values, nrow * sizeof(char **));
+		for (j = 0; j < nrow; ++j)
+		{
+			int			ntok;
+			int			k;
+			int			c = 0;
+			bool		sep_found = false;
+
+			values[j] = (char **) palloc(ncol * sizeof(char *));
+
+			toks = parse_ss_line(lines[j], &ntok);
+			/* there shoould be at least 10 tokens */
+			if (ntok < 10)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
+							   ntok, mountinfo, j + 1)));
+
+			/* iterate all found columns and keep the ones we want */
+			for (k = 0; k < ntok; ++k)
+			{
+				/* grab the first 6 columns */
+				if (k < 6)
+				{
+					if (k != 2)
+					{
+						values[j][c] = pstrdup(toks[k]);
+						++c;
+					}
+					else
+					{
+						/* split major:minor into two columns */
+						char   *p = strchr(toks[k], ':');
+						Size	len;
+
+						if (!p)
+							ereport(ERROR,
+									(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+									errmsg("pgnodemx: missing \":\" in file %s, line %d",
+										   mountinfo, j + 1)));
+
+						len = (p - toks[k]);
+						values[j][c] = pnstrdup(toks[k], len);
+						++c;
+
+						values[j][c] = pstrdup(p + 1);
+						++c;
+					}
+				}
+				else if (strcmp(toks[k], "-") == 0) /* skip until the separator */
+					sep_found = true;
+				else if (sep_found) /* all good, grab the remaining columns */
+				{
+					values[j][c] = pstrdup(toks[k]);
+					++c;
+				}
+			}
+
+			/* make sure we found ncol columns */
+			if (c != ncol)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: malformed line in file %s, line %d",
+							   mountinfo, j + 1)));
+		}
+	}
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: no data in file: %s ", mountinfo)));
+
+	return form_srf(fcinfo, values, nrow, ncol, _4_bigint_6_text_sig);
+}
+
 PG_FUNCTION_INFO_V1(pgnodemx_proc_meminfo);
 Datum
 pgnodemx_proc_meminfo(PG_FUNCTION_ARGS)
@@ -752,7 +884,7 @@ pgnodemx_fsinfo(PG_FUNCTION_ARGS)
 	char   *pname = text_to_cstring(PG_GETARG_TEXT_PP(0));
 
 	values = get_statfs_path(pname, &nrow, &ncol);
-	return form_srf(fcinfo, values, nrow, ncol, text_9_bigint_text_sig);
+	return form_srf(fcinfo, values, nrow, ncol, _2_bigint_text_9_bigint_text_sig);
 }
 
 #define HDR_LINES	2

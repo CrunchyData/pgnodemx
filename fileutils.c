@@ -39,6 +39,10 @@
 #endif
 #include <sys/statvfs.h>
 #include <sys/vfs.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <sys/sysmacros.h>
 
 #include "catalog/pg_authid.h"
 #include "miscadmin.h"
@@ -234,20 +238,29 @@ read_vfs(char *filename)
 }
 
 /*
- * Convert statfs struct for given path (at least the interesting bits)
- * to a string matrix of key/value pairs, suitable for use in constructing
- * a tuplestore for returning to the client.
+ * Convert statfs and stat structs for given path (at least the
+ * interesting bits) to a string matrix of key/value pairs, suitable
+ * for use in constructing a tuplestore for returning to the client.
  */
 char ***
 get_statfs_path(char *pname, int *nrow, int *ncol)
 {
 	struct statfs	buf;
+	struct stat		fs;
 	int				ret;
 	int				i;
 	char		 ***values;
 
 	*nrow = 1;
-	*ncol = 11;
+	*ncol = 13;
+
+	ret = stat(pname, &fs);
+	if (ret == -1)
+	{
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				errmsg("pgnodemx: stat error on path %s: %m", pname)));
+	}
 
 	ret = statfs(pname, &buf);
 	if (ret == -1)
@@ -261,17 +274,19 @@ get_statfs_path(char *pname, int *nrow, int *ncol)
 	for (i = 0; i < (*nrow); ++i)
 		values[i] = (char **) palloc((*ncol) * sizeof(char **));
 
-	values[0][0] = magic_get_name((uint64) buf.f_type);
-	values[0][1] = uint64_to_string((uint64) buf.f_bsize);
-	values[0][2] = uint64_to_string((uint64) buf.f_blocks);
-	values[0][3] = uint64_to_string((uint64) (buf.f_blocks * buf.f_bsize));
-	values[0][4] = uint64_to_string((uint64) buf.f_bfree);
-	values[0][5] = uint64_to_string((uint64) (buf.f_bfree * buf.f_bsize));
-	values[0][6] = uint64_to_string((uint64) buf.f_bavail);
-	values[0][7] = uint64_to_string((uint64) (buf.f_bavail * buf.f_bsize));
-	values[0][8] = uint64_to_string((uint64) buf.f_files);
-	values[0][9] = uint64_to_string((uint64) buf.f_ffree);
-	values[0][10] = mount_flags_to_string((uint64) buf.f_flags);
+	values[0][0] = uint64_to_string((uint64) major(fs.st_dev));
+	values[0][1] = uint64_to_string((uint64) minor(fs.st_dev));
+	values[0][2] = magic_get_name((uint64) buf.f_type);
+	values[0][3] = uint64_to_string((uint64) buf.f_bsize);
+	values[0][4] = uint64_to_string((uint64) buf.f_blocks);
+	values[0][5] = uint64_to_string((uint64) (buf.f_blocks * buf.f_bsize));
+	values[0][6] = uint64_to_string((uint64) buf.f_bfree);
+	values[0][7] = uint64_to_string((uint64) (buf.f_bfree * buf.f_bsize));
+	values[0][8] = uint64_to_string((uint64) buf.f_bavail);
+	values[0][9] = uint64_to_string((uint64) (buf.f_bavail * buf.f_bsize));
+	values[0][10] = uint64_to_string((uint64) buf.f_files);
+	values[0][11] = uint64_to_string((uint64) buf.f_ffree);
+	values[0][12] = mount_flags_to_string((uint64) buf.f_flags);
 
 	return values;
 }

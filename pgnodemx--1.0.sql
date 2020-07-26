@@ -120,6 +120,23 @@ RETURNS SETOF record
 AS 'MODULE_PATHNAME', 'pgnodemx_proc_diskstats'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
+CREATE FUNCTION proc_mountinfo
+(
+  OUT mount_id BIGINT,
+  OUT parent_id BIGINT,
+  OUT major_number BIGINT,
+  OUT minor_number BIGINT,
+  OUT root TEXT,
+  OUT mount_point TEXT,
+  OUT mount_options TEXT,
+  OUT fs_type TEXT,
+  OUT mount_source TEXT,
+  OUT super_options TEXT
+)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_mountinfo'
+LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
+
 CREATE FUNCTION proc_meminfo
 (
   OUT key TEXT,
@@ -156,6 +173,8 @@ LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 CREATE FUNCTION fsinfo
 (
   IN pathname TEXT,
+  OUT major_number BIGINT,
+  OUT minor_number BIGINT,
   OUT type TEXT,
   OUT block_size BIGINT,
   OUT blocks BIGINT,

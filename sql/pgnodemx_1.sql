@@ -49,6 +49,8 @@ SELECT envvar_bigint('PGHA_PG_PORT');
 
 SELECT * FROM proc_diskstats();
 
+SELECT * FROM proc_mountinfo();
+
 SELECT * FROM proc_meminfo();
 
 SELECT * FROM fsinfo(current_setting('data_directory'));
@@ -73,3 +75,8 @@ SELECT * FROM kdapi_scalar_bigint('cpu_limit');
 SELECT * FROM kdapi_scalar_bigint('cpu_request');
 SELECT * FROM kdapi_scalar_bigint('mem_limit');
 SELECT * FROM kdapi_scalar_bigint('mem_request');
+
+SELECT *
+FROM proc_mountinfo() m
+JOIN proc_diskstats() d USING (major_number, minor_number)
+JOIN fsinfo(current_setting('data_directory')) f USING (major_number, minor_number);
