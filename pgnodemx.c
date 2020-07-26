@@ -324,7 +324,7 @@ pgnodemx_cgroup_array_text(PG_FUNCTION_ARGS)
 	char   *fqpath;
 	char  **values;
 	int		nvals;
-	bool	isnull;
+	bool	isnull = false;
 	Datum	dvalue;
 
 	if (!cgroup_enabled)
@@ -347,7 +347,7 @@ pgnodemx_cgroup_array_bigint(PG_FUNCTION_ARGS)
 	char   *fqpath;
 	char  **values;
 	int		nvals;
-	bool	isnull;
+	bool	isnull = false;
 	Datum	dvalue;
 	int		i;
 

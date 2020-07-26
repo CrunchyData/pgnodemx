@@ -288,6 +288,8 @@ string_get_array_datum(char **values, int nvals, Oid typelem, bool *isnull)
 		*isnull = true;
 		return (Datum) 0;
 	}
+	else
+		*isnull = false;
 
 	/*
 	 * get the element type's in_func
