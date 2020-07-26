@@ -29,8 +29,8 @@
 
 #include "postgres.h"
 
-#if PG_VERSION_NUM < 100000
-#error "pgnodemx only builds with PostgreSQL 10 or later"
+#if PG_VERSION_NUM < 90500
+#error "pgnodemx only builds with PostgreSQL 9.5 or later"
 #endif
 
 #include <unistd.h>
@@ -58,8 +58,13 @@
 PG_MODULE_MAGIC;
 
 /* human readable to bytes */
+#if PG_VERSION_NUM < 90600
+#define h2b(arg1) size_bytes(arg1)
+#else
 #define h2b(arg1) \
   DatumGetInt64(DirectFunctionCall1(pg_size_bytes, PointerGetDatum(cstring_to_text(arg1))))
+#endif
+
 /* various /proc/ source files */
 #define diskstats	"/proc/diskstats"
 #define mountinfo	"/proc/self/mountinfo"
@@ -208,7 +213,7 @@ pgnodemx_cgroup_path(PG_FUNCTION_ARGS)
 	int		ncol = 2;
 	int		i;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		return form_srf(fcinfo, NULL, 0, ncol, text_text_sig);
 
 	nrow = cgpath->nkvp;
@@ -237,7 +242,7 @@ pgnodemx_cgroup_process_count(PG_FUNCTION_ARGS)
 {
 	int64	   *cgpids;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		PG_RETURN_NULL();
 
 	/* cgmembers returns pid count */
@@ -250,7 +255,7 @@ pgnodemx_cgroup_scalar_bigint(PG_FUNCTION_ARGS)
 {
 	char   *fqpath;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		PG_RETURN_NULL();
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -264,7 +269,7 @@ pgnodemx_cgroup_scalar_float8(PG_FUNCTION_ARGS)
 {
 	char   *fqpath;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		PG_RETURN_NULL();
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -278,7 +283,7 @@ pgnodemx_cgroup_scalar_text(PG_FUNCTION_ARGS)
 {
 	char   *fqpath;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		PG_RETURN_NULL();
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -292,7 +297,7 @@ pgnodemx_cgroup_setof_bigint(PG_FUNCTION_ARGS)
 {
 	char	   *fqpath;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		return form_srf(fcinfo, NULL, 0, 1, bigint_sig);
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -305,7 +310,7 @@ pgnodemx_cgroup_setof_text(PG_FUNCTION_ARGS)
 {
 	char	   *fqpath;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		return form_srf(fcinfo, NULL, 0, 1, text_sig);
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -322,7 +327,7 @@ pgnodemx_cgroup_array_text(PG_FUNCTION_ARGS)
 	bool	isnull;
 	Datum	dvalue;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		PG_RETURN_NULL();
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -346,7 +351,7 @@ pgnodemx_cgroup_array_bigint(PG_FUNCTION_ARGS)
 	Datum	dvalue;
 	int		i;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		PG_RETURN_NULL();
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -376,7 +381,7 @@ pgnodemx_cgroup_setof_kv(PG_FUNCTION_ARGS)
 	char	  **lines;
 	int			ncol = 2;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		return form_srf(fcinfo, NULL, 0, ncol, text_bigint_sig);
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -430,7 +435,7 @@ pgnodemx_cgroup_setof_ksv(PG_FUNCTION_ARGS)
 	char	  **lines;
 	int			ncol = 3;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		return form_srf(fcinfo, NULL, 0, ncol, text_text_bigint_sig);
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -485,7 +490,7 @@ pgnodemx_cgroup_setof_nkv(PG_FUNCTION_ARGS)
 	char	  **lines;
 	int			ncol = 3;
 
-	if (unlikely(!cgroup_enabled))
+	if (!cgroup_enabled)
 		return form_srf(fcinfo, NULL, 0, ncol, text_text_float8_sig);
 
 	fqpath = get_fq_cgroup_path(fcinfo);
@@ -550,11 +555,8 @@ pgnodemx_envvar_text(PG_FUNCTION_ARGS)
 {
 	char *varname = text_to_cstring(PG_GETARG_TEXT_PP(0));
 
-	/* Limit use to members of the 'pg_monitor' role */
-	if (!is_member_of_role(GetUserId(), DEFAULT_ROLE_MONITOR))
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("must be member of pg_monitor role")));
+	/* Limit use to members of special role */
+	pgnodemx_check_role();
 
 	PG_RETURN_TEXT_P(cstring_to_text(get_string_from_env(varname)));
 }
@@ -568,11 +570,8 @@ pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
 	char   *varname = text_to_cstring(PG_GETARG_TEXT_PP(0));
 	char   *value = get_string_from_env(varname);
 
-	/* Limit use to members of the 'pg_monitor' role */
-	if (!is_member_of_role(GetUserId(), DEFAULT_ROLE_MONITOR))
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("must be member of pg_monitor role")));
+	/* Limit use to members of special role */
+	pgnodemx_check_role();
 
 	success = scanint8(value, true, &result);
 	if (!success)
@@ -583,7 +582,6 @@ pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
 
 	PG_RETURN_INT64(result);
 }
-
 
 /*
  * "/proc" files: these files have all kinds of formats. For now

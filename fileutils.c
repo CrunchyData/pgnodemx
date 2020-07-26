@@ -50,6 +50,10 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
+#if PG_VERSION_NUM < 100000
+#include "access/htup_details.h"
+#include "utils/syscache.h"
+#endif
 
 #include "fileutils.h"
 #include "genutils.h"
@@ -123,6 +127,58 @@ char   *mflagnames[] =
 static char *magic_get_name(uint64 magic_id);
 static char *mount_flags_to_string(uint64 flags);
 
+#if PG_VERSION_NUM < 100000
+/*
+ * Get role oid from role name, returns NULL for nonexistent role name
+ * if noerr is true.
+ */
+static Oid
+GetRoleIdFromName(char *rolename, bool noerr)
+{
+	HeapTuple	tuple;
+	Oid			result;
+
+	tuple = SearchSysCache1(AUTHNAME, PointerGetDatum(rolename));
+	if (!HeapTupleIsValid(tuple))
+	{
+		if (!noerr)
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("role \"%s\" does not exist", rolename)));
+		result = InvalidOid;
+	}
+	else
+	{
+		result = HeapTupleGetOid(tuple);
+		ReleaseSysCache(tuple);
+	}
+	return result;
+}
+#endif
+
+void
+pgnodemx_check_role(void)
+{
+#if PG_VERSION_NUM < 100000
+#define PGNODEMX_MONITOR_ROLE	"pgmonitor"
+	Oid			checkoid = GetRoleIdFromName(PGNODEMX_MONITOR_ROLE, true);
+
+	if (checkoid == InvalidOid)
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("role %s does not exist", PGNODEMX_MONITOR_ROLE)));
+#else
+#define PGNODEMX_MONITOR_ROLE	"pg_monitor"
+	Oid			checkoid = DEFAULT_ROLE_MONITOR;
+#endif
+
+	/* Limit use to members of the specified role */
+	if (!is_member_of_role(GetUserId(), checkoid))
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be member of %s role", PGNODEMX_MONITOR_ROLE)));
+}
+
 /*
  * Simplified/modified version of same named function in genfile.c.
  * Be careful not to call during _PG_init() because
@@ -133,11 +189,8 @@ convert_and_check_filename(text *arg)
 {
 	char	   *filename;
 
-	/* Limit use to members of the 'pg_monitor' role */
-	if (!is_member_of_role(GetUserId(), DEFAULT_ROLE_MONITOR))
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("must be member of pg_monitor role")));
+	/* Limit use to members of special role */
+	pgnodemx_check_role();
 
 	filename = text_to_cstring(arg);
 	canonicalize_path(filename);	/* filename can change length here */

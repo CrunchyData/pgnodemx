@@ -48,6 +48,7 @@
 #endif /* PG_VERSION_NUM < 130000 */
 #include "utils/guc_tables.h"
 #include "utils/lsyscache.h"
+#include "utils/numeric.h"
 
 #include "genutils.h"
 #include "parseutils.h"
@@ -74,13 +75,11 @@ static const char DIGIT_TABLE[200] =
 static int pg_ulltoa_n(uint64 value, char *a);
 static inline int decimalLength64(const uint64 v);
 
-#if PG_VERSION_NUM > 110000
+#if PG_VERSION_NUM >= 120000
 #include "port/pg_bitutils.h"
 #else
 
-extern const uint8 pg_leftmost_one_pos[256];
-extern const uint8 pg_rightmost_one_pos[256];
-extern const uint8 pg_number_of_ones[256];
+static const uint8 pg_leftmost_one_pos[256];
 
 /*
  * pg_leftmost_one_pos64
@@ -110,11 +109,8 @@ pg_leftmost_one_pos64(uint64 word)
 	return shift + pg_leftmost_one_pos[(word >> shift) & 255];
 #endif							/* HAVE__BUILTIN_CLZ */
 }
-#endif /* PG_VERSION_NUM > 110000 */
+#endif /* PG_VERSION_NUM >= 120000 */
 #endif /* PG_VERSION_NUM < 130000 */
-
-
-
 
 /*
  * Convert a 2D array of strings into a tuplestore and return it
@@ -286,19 +282,12 @@ string_get_array_datum(char **values, int nvals, Oid typelem, bool *isnull)
 	int			i;
 	Datum	   *dvalues = NULL;
 	ArrayType  *arr;
-	int		   *dims;
-	int		   *lbs;
-	bool	   *nulls;
-	int			ndims = 1;
 
 	if (nvals == 0)
 	{
 		*isnull = true;
 		return (Datum) 0;
 	}
-
-	dims = palloc(ndims * sizeof(int));
-	lbs = palloc(ndims * sizeof(int));
 
 	/*
 	 * get the element type's in_func
@@ -307,25 +296,17 @@ string_get_array_datum(char **values, int nvals, Oid typelem, bool *isnull)
 					 &typalign, &typdelim, &typioparam, &typinput);
 	fmgr_info(typinput, &in_func);
 
-	dims[0] = nvals;
-	lbs[0] = 1;
-
 	dvalues = (Datum *) palloc(nvals * sizeof(Datum));
-	nulls = (bool *) palloc(nvals * sizeof(bool));
 
 	for (i = 0; i < nvals; i++)
 	{
 		value = values[i];
 
-		nulls[i] = false;
-		dvalues[i] = FunctionCall3Coll(&in_func, DEFAULT_COLLATION_OID,
-									   CStringGetDatum(value),
-									   (Datum) 0,
-									   Int32GetDatum(-1));
+		dvalues[i] = FunctionCall1(&in_func, CStringGetDatum(value));
 	}
 
-	arr = construct_md_array(dvalues, NULL, ndims, dims, lbs,
-							   typelem, typlen, typbyval, typalign);
+	arr = construct_array(dvalues, nvals,
+						  typelem, typlen, typbyval, typalign);
 
 	return PointerGetDatum(arr);
 }
@@ -476,6 +457,153 @@ uint64_to_string(uint64 val)
 
 	return value;
 }
+
+#if PG_VERSION_NUM < 90600
+/*
+ * Convert a human-readable size to a size in bytes.
+ * Copied from src/backend/utils/adt/dbsize.c and
+ * modified to take a simple char* string and return
+ * int64 instead of Datum.
+ */
+int64
+size_bytes(char *str)
+{
+	char	   *strptr,
+			   *endptr;
+	char		saved_char;
+	Numeric		num;
+	int64		result;
+	bool		have_digits = false;
+
+	/* Skip leading whitespace */
+	strptr = str;
+	while (isspace((unsigned char) *strptr))
+		strptr++;
+
+	/* Check that we have a valid number and determine where it ends */
+	endptr = strptr;
+
+	/* Part (1): sign */
+	if (*endptr == '-' || *endptr == '+')
+		endptr++;
+
+	/* Part (2): main digit string */
+	if (isdigit((unsigned char) *endptr))
+	{
+		have_digits = true;
+		do
+			endptr++;
+		while (isdigit((unsigned char) *endptr));
+	}
+
+	/* Part (3): optional decimal point and fractional digits */
+	if (*endptr == '.')
+	{
+		endptr++;
+		if (isdigit((unsigned char) *endptr))
+		{
+			have_digits = true;
+			do
+				endptr++;
+			while (isdigit((unsigned char) *endptr));
+		}
+	}
+
+	/* Complain if we don't have a valid number at this point */
+	if (!have_digits)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("invalid size: \"%s\"", str)));
+
+	/* Part (4): optional exponent */
+	if (*endptr == 'e' || *endptr == 'E')
+	{
+		long		exponent;
+		char	   *cp;
+
+		/*
+		 * Note we might one day support EB units, so if what follows 'E'
+		 * isn't a number, just treat it all as a unit to be parsed.
+		 */
+		exponent = strtol(endptr + 1, &cp, 10);
+		(void) exponent;		/* Silence -Wunused-result warnings */
+		if (cp > endptr + 1)
+			endptr = cp;
+	}
+
+	/*
+	 * Parse the number, saving the next character, which may be the first
+	 * character of the unit string.
+	 */
+	saved_char = *endptr;
+	*endptr = '\0';
+
+	num = DatumGetNumeric(DirectFunctionCall3(numeric_in,
+											  CStringGetDatum(strptr),
+											  ObjectIdGetDatum(InvalidOid),
+											  Int32GetDatum(-1)));
+
+	*endptr = saved_char;
+
+	/* Skip whitespace between number and unit */
+	strptr = endptr;
+	while (isspace((unsigned char) *strptr))
+		strptr++;
+
+	/* Handle possible unit */
+	if (*strptr != '\0')
+	{
+		int64		multiplier = 0;
+
+		/* Trim any trailing whitespace */
+		endptr = str + strlen(str) - 1;
+
+		while (isspace((unsigned char) *endptr))
+			endptr--;
+
+		endptr++;
+		*endptr = '\0';
+
+		/* Parse the unit case-insensitively */
+		if (pg_strcasecmp(strptr, "bytes") == 0)
+			multiplier = (int64) 1;
+		else if (pg_strcasecmp(strptr, "kb") == 0)
+			multiplier = (int64) 1024;
+		else if (pg_strcasecmp(strptr, "mb") == 0)
+			multiplier = ((int64) 1024) * 1024;
+
+		else if (pg_strcasecmp(strptr, "gb") == 0)
+			multiplier = ((int64) 1024) * 1024 * 1024;
+
+		else if (pg_strcasecmp(strptr, "tb") == 0)
+			multiplier = ((int64) 1024) * 1024 * 1024 * 1024;
+
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid size: \"%s\"", str),
+					 errdetail("Invalid size unit: \"%s\".", strptr),
+					 errhint("Valid units are \"bytes\", \"kB\", \"MB\", \"GB\", and \"TB\".")));
+
+		if (multiplier > 1)
+		{
+			Numeric		mul_num;
+
+			mul_num = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
+														  Int64GetDatum(multiplier)));
+
+			num = DatumGetNumeric(DirectFunctionCall2(numeric_mul,
+													  NumericGetDatum(mul_num),
+													  NumericGetDatum(num)));
+		}
+	}
+
+	result = DatumGetInt64(DirectFunctionCall1(numeric_int8,
+											   NumericGetDatum(num)));
+
+	return result;
+}
+#endif
 
 #if PG_VERSION_NUM < 130000
 /*

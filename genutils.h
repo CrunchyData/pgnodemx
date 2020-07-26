@@ -42,5 +42,8 @@ extern struct config_generic *find_option(const char *name);
 extern char *int64_to_string(int64 val);
 extern int pg_ulltoa(uint64 uvalue, char *a);
 extern char *uint64_to_string(uint64 val);
+#if PG_VERSION_NUM < 90600
+extern int64 size_bytes(char *str);
+#endif
 
 #endif	/* GENUTILS_H */
