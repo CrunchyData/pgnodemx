@@ -90,6 +90,11 @@ SELECT envvar_bigint('PGPORT');
 
 ## ```/proc``` Related Functions
 
+### Get "/proc/diskstats" as a virtual table
+```
+SELECT * FROM proc_diskstats();
+```
+
 ### Get "/proc/meminfo" as a virtual table
 ```
 SELECT * FROM proc_meminfo();

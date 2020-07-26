@@ -61,6 +61,7 @@ PG_MODULE_MAGIC;
 #define h2b(arg1) \
   DatumGetInt64(DirectFunctionCall1(pg_size_bytes, PointerGetDatum(cstring_to_text(arg1))))
 /* various /proc/ source files */
+#define diskstats	"/proc/diskstats"
 #define meminfo		"/proc/meminfo"
 #define netstat		"/proc/self/net/dev"
 
@@ -74,6 +75,10 @@ Oid text_text_float8_sig[] = {TEXTOID, TEXTOID, FLOAT8OID};
 Oid text_9_bigint_text_sig[] = {TEXTOID, INT8OID, INT8OID, INT8OID,
 										 INT8OID, INT8OID, INT8OID,
 										 INT8OID, INT8OID, INT8OID, TEXTOID};
+Oid bigint_bigint_text_11_bigint_sig[] = {INT8OID, INT8OID, TEXTOID,
+										  INT8OID, INT8OID, INT8OID, INT8OID,
+										  INT8OID, INT8OID, INT8OID, INT8OID,
+										  INT8OID, INT8OID, INT8OID};
 Oid text_16_bigint_sig[] = {TEXTOID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
@@ -583,6 +588,95 @@ pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
  * create a handful of specific access functions for the most
  * interesting (to us) files.
  */
+
+/*
+ * /proc/diskstats file:
+ * 
+ *  1 - major number
+ *  2 - minor mumber
+ *  3 - device name
+ *  4 - reads completed successfully
+ *  5 - reads merged
+ *  6 - sectors read
+ *  7 - time spent reading (ms)
+ *  8 - writes completed
+ *  9 - writes merged
+ * 10 - sectors written
+ * 11 - time spent writing (ms)
+ * 12 - I/Os currently in progress
+ * 13 - time spent doing I/Os (ms)
+ * 14 - weighted time spent doing I/Os (ms)
+ * 
+ * Kernel 4.18+ appends four more fields for discard
+ * tracking putting the total at 18:
+ * 
+ * 15 - discards completed successfully
+ * 16 - discards merged
+ * 17 - sectors discarded
+ * 18 - time spent discarding
+ * 
+ * Kernel 5.5+ appends two more fields for flush requests:
+ * 
+ * 19 - flush requests completed successfully
+ * 20 - time spent flushing
+ * 
+ * For now, validate either 14,18, or 20 fields found when
+ * parsing the lines, but only return the first 14. If there
+ * is demand for the other fields at some point, possibly
+ * add them then.
+ */
+PG_FUNCTION_INFO_V1(pgnodemx_proc_diskstats);
+Datum
+pgnodemx_proc_diskstats(PG_FUNCTION_ARGS)
+{
+	int			nrow = 0;
+	int			ncol = 14;
+	char	 ***values = (char ***) palloc(0);
+	char	  **lines;
+	int			nlines;
+
+	/* read /proc/self/net/dev file */
+	lines = read_nlsv(diskstats, &nlines);
+
+	/*
+	 * These files have either 14,18, or 20 fields per line.
+	 * We will validate one of those lengths, but only use 14 of the
+	 * space separated columns. The third column is the device name.
+	 * Rest of the columns are bigints.
+	 */
+	if (nlines > 0)
+	{
+		int			j;
+		char	  **toks;
+
+		nrow = nlines;
+		values = (char ***) repalloc(values, nrow * sizeof(char **));
+		for (j = 0; j < nrow; ++j)
+		{
+			int			ntok;
+			int			k;
+
+			values[j] = (char **) palloc(ncol * sizeof(char *));
+
+			toks = parse_ss_line(lines[j], &ntok);
+			if (ntok != 14 && ntok != 18  && ntok != 20)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
+							   ntok, diskstats, j + 1)));
+
+			for (k = 0; k < ncol; ++k)
+				values[j][k] = pstrdup(toks[k]);
+		}
+	}
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: no data in file: %s ", diskstats)));
+
+	return form_srf(fcinfo, values, nrow, ncol, bigint_bigint_text_11_bigint_sig);
+}
+
 PG_FUNCTION_INFO_V1(pgnodemx_proc_meminfo);
 Datum
 pgnodemx_proc_meminfo(PG_FUNCTION_ARGS)
@@ -648,12 +742,6 @@ pgnodemx_proc_meminfo(PG_FUNCTION_ARGS)
 	return (Datum) 0;
 }
 
-/*
- * "/proc" files: these files have all kinds of formats. For now
- * at least do not try to create generic parsing functions. Just
- * create a handful of specific access functions for the most
- * interesting (to us) files.
- */
 PG_FUNCTION_INFO_V1(pgnodemx_fsinfo);
 Datum
 pgnodemx_fsinfo(PG_FUNCTION_ARGS)

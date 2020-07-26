@@ -99,6 +99,27 @@ RETURNS BIGINT
 AS 'MODULE_PATHNAME', 'pgnodemx_envvar_bigint'
 LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
 
+CREATE FUNCTION proc_diskstats
+(
+  OUT major_number BIGINT,
+  OUT minor_number BIGINT,
+  OUT device_name TEXT,
+  OUT reads_completed_successfully BIGINT,
+  OUT reads_merged BIGINT,
+  OUT sectors_read BIGINT,
+  OUT time_spent_reading_ms BIGINT,
+  OUT writes_completed BIGINT,
+  OUT writes_merged BIGINT,
+  OUT sectors_written BIGINT,
+  OUT time_spent_writing_ms BIGINT,
+  OUT ios_currently_in_progress BIGINT,
+  OUT time_spent_doing_ios_ms BIGINT,
+  OUT weighted_time_spent_doing_ios_ms BIGINT
+)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_diskstats'
+LANGUAGE C STABLE STRICT PARALLEL RESTRICTED;
+
 CREATE FUNCTION proc_meminfo
 (
   OUT key TEXT,

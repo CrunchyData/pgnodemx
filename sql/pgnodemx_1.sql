@@ -47,6 +47,8 @@ SELECT envvar_text('PGDATA');
 SELECT envvar_text('HOSTNAME');
 SELECT envvar_bigint('PGHA_PG_PORT');
 
+SELECT * FROM proc_diskstats();
+
 SELECT * FROM proc_meminfo();
 
 SELECT * FROM fsinfo(current_setting('data_directory'));
