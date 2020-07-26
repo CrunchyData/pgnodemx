@@ -9,6 +9,7 @@ SELECT cgroup_mode();
 SELECT * FROM cgroup_path();
 SELECT cgroup_process_count();
 SELECT current_setting('pgnodemx.containerized');
+SELECT current_setting('pgnodemx.cgroup_enabled');
 
 SELECT cgroup_scalar_bigint('memory.usage_in_bytes');
 SELECT cgroup_scalar_float8('memory.usage_in_bytes');
@@ -61,6 +62,7 @@ SELECT interface,
        tx_packets
 FROM proc_network_stats();
 
+SELECT current_setting('pgnodemx.kdapi_enabled');
 SELECT * FROM kdapi_setof_kv('labels');
 SELECT * FROM kdapi_setof_kv('annotations');
 SELECT replace(val,'\"','"')::jsonb FROM kdapi_setof_kv('annotations') WHERE key = 'status';

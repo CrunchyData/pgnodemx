@@ -9,6 +9,7 @@ SELECT cgroup_mode();
 SELECT * FROM cgroup_path();
 SELECT cgroup_process_count();
 SELECT current_setting('pgnodemx.containerized');
+SELECT current_setting('pgnodemx.cgroup_enabled');
 
 SELECT cgroup_scalar_bigint('memory.current');
 SELECT cgroup_scalar_float8('memory.current');
@@ -69,7 +70,9 @@ SELECT interface,
        tx_packets
 FROM proc_network_stats();
 
+SELECT current_setting('pgnodemx.kdapi_enabled');
 SELECT * FROM kdapi_setof_kv('labels');
+
 SELECT * FROM kdapi_scalar_bigint('cpu_limit');
 SELECT * FROM kdapi_scalar_bigint('cpu_request');
 SELECT * FROM kdapi_scalar_bigint('mem_limit');
