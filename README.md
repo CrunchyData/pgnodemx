@@ -8,34 +8,48 @@ Executing role must have been granted pg_monitor membership (pgmonitor for Postg
 
 ## cgroup Related Functions
 
+For detailed information about the various virtual files available on the cgroup file system, see:
+* cgroup v1: https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v1/index.html
+* cgroup v2: https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html
+
 ### General Access Functions
 
 cgroup virtual files fall into (at least) the following general categories, each with a generic SQL access function:
 
 * BIGINT single line scalar values - ```SELECT cgroup_scalar_bigint(filename);```
+  * cgroup v1 examples: memory.limit_in_bytes, memory.max_usage_in_bytes, memsw.limit_in_bytes, memsw.max_usage_in_bytes, memsw.usage_in_bytes, memory.usage_in_bytes
   * cgroup v2 examples: cgroup.freeze, cgroup.max.depth, cgroup.max.descendants, cpu.weight, cpu.weight.nice, memory.current, memory.high, memory.low, memory.max, memory.min, memory.oom.group, memory.swap.current, memory.swap.max, pids.current, pids.max
 * FLOAT8 single line scalar values - ```SELECT cgroup_scalar_float8(filename);```
+  * cgroup v1 examples: 
   * cgroup v2 examples: cpu.uclamp.max, cpu.uclamp.min
 * TEXT single line scalar values - ```SELECT cgroup_scalar_text(filename);```
+  * cgroup v1 examples: 
   * cgroup v2 examples: cgroup.type
 
 * SETOF(BIGINT) multiline scalar values - ```SELECT * FROM cgroup_setof_bigint(filename);```
+  * cgroup v1 examples: cgroup.procs
   * cgroup v2 examples: cgroup.procs, cgroup.threads
 * SETOF(TEXT) multiline scalar values - ```SELECT * FROM cgroup_setof_text(filename);```
+  * cgroup v1 examples: 
   * cgroup v2 examples: none
 
 * ARRAY[BIGINT] space separated values - ```SELECT cgroup_array_bigint(filename);```
+  * cgroup v1 examples: 
   * cgroup v2 examples: cpu.max
 * ARRAY[TEXT] space separated values - ```SELECT cgroup_array_text(filename)```
+  * cgroup v1 examples: 
   * cgroup v2 examples: cgroup.controllers, cgroup.subtree_control
 
 * SETOF(TEXT, BIGINT) flat keyed - ```SELECT * FROM cgroup_setof_kv(filename);```
+  * cgroup v1 examples: memory.stat, 
   * cgroup v2 examples: cgroup.events, cgroup.stat, cpu.stat, io.pressure, io.weight, memory.events, memory.events.local, memory.stat, memory.swap.events, pids.events
 
 * SETOF(TEXT, TEXT, BIGINT) key/subkey/value space separated - ```SELECT * FROM cgroup_setof_ksv(filename);```
   * cgroup v1 examples: blkio.throttle.io_serviced and blkio.throttle.io_service_bytes
+  * cgroup v2 examples: 
 
 * SETOF(TEXT, TEXT, FLOAT8) nested keyed - ```SELECT * FROM cgroup_setof_nkv(filename);```
+  * cgroup v1 examples: 
   * cgroup v2 examples: memory.pressure, cpu.pressure, io.max, io.stat
 
 In each case, the filename must be in the form ```<controller>.<metric>```, e.g. ```memory.stat```. For more information about cgroup v2 virtual files, See https://www.kernel.org/doc/Documentation/cgroup-v2.txt.
@@ -90,6 +104,8 @@ SELECT envvar_bigint('PGPORT');
 
 ## ```/proc``` Related Functions
 
+For more detailed information about the /proc file system virtual files, please see: https://www.kernel.org/doc/html/latest/filesystems/proc.html
+
 ### Get "/proc/diskstats" as a virtual table
 ```
 SELECT * FROM proc_diskstats();
@@ -119,6 +135,8 @@ SELECT * FROM fsinfo(path text);
 * Returns major_number, minor_number, type, block_size, blocks, total_bytes, free_blocks, free_bytes, available_blocks, available_bytes, total_file_nodes, free_file_nodes, and mount_flags for the file system on which ```path``` is mounted.
 
 ## Kubernetes DownwardAPI Related Functions
+
+For more detailed information about the Kubernetes DownwardAPI please see: https://kubernetes.io/docs/tasks/inject-data-application/downward-api-volume-expose-pod-information/
 
 ### Get status of kdapi_enabled
 ```
@@ -268,4 +286,3 @@ CREATE EXTENSION pgnodemx;
 
 * Add cgroup v1 examples for the General Access functions
 * Add URL to cgroup v1 documentation
-* Map '/proc/diskstats' to virtual table
