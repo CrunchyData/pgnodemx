@@ -17,6 +17,7 @@ SELECT cgroup_scalar_text('memory.usage_in_bytes');
 SELECT cgroup_scalar_bigint('memory.limit_in_bytes');
 SELECT cgroup_scalar_bigint('cpu.cfs_period_us');
 SELECT cgroup_scalar_bigint('cpu.cfs_quota_us');
+SELECT cgroup_scalar_bigint('cpuacct.usage');
 
 -- should return NULL
 SELECT cgroup_scalar_bigint(null);

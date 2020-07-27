@@ -52,7 +52,7 @@ cgroup virtual files fall into (at least) the following general categories, each
   * cgroup v1 examples: 
   * cgroup v2 examples: memory.pressure, cpu.pressure, io.max, io.stat
 
-In each case, the filename must be in the form ```<controller>.<metric>```, e.g. ```memory.stat```. For more information about cgroup v2 virtual files, See https://www.kernel.org/doc/Documentation/cgroup-v2.txt.
+In each case, the filename must be in the form ```<controller>.<metric>```, e.g. ```memory.stat```.
 
 ### Get status of cgroup support
 ```
