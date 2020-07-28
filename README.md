@@ -17,39 +17,39 @@ For detailed information about the various virtual files available on the cgroup
 cgroup virtual files fall into (at least) the following general categories, each with a generic SQL access function:
 
 * BIGINT single line scalar values - ```SELECT cgroup_scalar_bigint(filename);```
-  * cgroup v1 examples: memory.limit_in_bytes, memory.max_usage_in_bytes, memsw.limit_in_bytes, memsw.max_usage_in_bytes, memsw.usage_in_bytes, memory.usage_in_bytes
+  * cgroup v1 examples: blkio.leaf_weight, blkio.weight, cpuacct.usage, cpuacct.usage_percpu, cpuacct.usage_percpu_sys, cpuacct.usage_percpu_user, cpuacct.usage_sys, cpuacct.usage_user, cpu.cfs_period_us, cpu.cfs_quota_us, cpu.rt_period_us, cpu.rt_runtime_us, cpu.shares, cpuacct.usage, memory.failcnt, memory.kmem.failcnt, memory.kmem.limit_in_bytes, memory.kmem.max_usage_in_bytes, memory.kmem.tcp.failcnt, memory.kmem.tcp.limit_in_bytes, memory.kmem.tcp.max_usage_in_bytes, memory.kmem.tcp.usage_in_bytes, memory.kmem.usage_in_bytes, memory.limit_in_bytes, memory.max_usage_in_bytes, memory.memsw.failcnt, memory.memsw.limit_in_bytes, memory.memsw.max_usage_in_bytes, memory.memsw.usage_in_bytes, memory.move_charge_at_immigrate, memory.soft_limit_in_bytes, memory.usage_in_bytes, net_cls.classid, net_prio.prioidx
   * cgroup v2 examples: cgroup.freeze, cgroup.max.depth, cgroup.max.descendants, cpu.weight, cpu.weight.nice, memory.current, memory.high, memory.low, memory.max, memory.min, memory.oom.group, memory.swap.current, memory.swap.max, pids.current, pids.max
 * FLOAT8 single line scalar values - ```SELECT cgroup_scalar_float8(filename);```
-  * cgroup v1 examples: 
+  * cgroup v1 examples: <none known>
   * cgroup v2 examples: cpu.uclamp.max, cpu.uclamp.min
 * TEXT single line scalar values - ```SELECT cgroup_scalar_text(filename);```
-  * cgroup v1 examples: 
+  * cgroup v1 examples: <none known>
   * cgroup v2 examples: cgroup.type
 
 * SETOF(BIGINT) multiline scalar values - ```SELECT * FROM cgroup_setof_bigint(filename);```
   * cgroup v1 examples: cgroup.procs
   * cgroup v2 examples: cgroup.procs, cgroup.threads
 * SETOF(TEXT) multiline scalar values - ```SELECT * FROM cgroup_setof_text(filename);```
-  * cgroup v1 examples: 
-  * cgroup v2 examples: none
+  * cgroup v1 examples: <none known>
+  * cgroup v2 examples: <none known>
 
 * ARRAY[BIGINT] space separated values - ```SELECT cgroup_array_bigint(filename);```
-  * cgroup v1 examples: 
+  * cgroup v1 examples: <none known>
   * cgroup v2 examples: cpu.max
 * ARRAY[TEXT] space separated values - ```SELECT cgroup_array_text(filename)```
-  * cgroup v1 examples: 
+  * cgroup v1 examples: cpuacct.usage_all (sort of)
   * cgroup v2 examples: cgroup.controllers, cgroup.subtree_control
 
 * SETOF(TEXT, BIGINT) flat keyed - ```SELECT * FROM cgroup_setof_kv(filename);```
-  * cgroup v1 examples: memory.stat, 
+  * cgroup v1 examples: cpuacct.stat, cpu.stat, cpuacct.stat, memory.oom_control, memory.stat, net_prio.ifpriomap, blkio.io_merged, blkio.io_merged_recursive, blkio.io_queued, blkio.io_queued_recursive, blkio.io_service_bytes, blkio.io_service_bytes_recursive, blkio.io_serviced, blkio.io_serviced_recursive, blkio.io_service_time, blkio.io_service_time_recursive, blkio.io_wait_time, blkio.io_wait_time_recursive
   * cgroup v2 examples: cgroup.events, cgroup.stat, cpu.stat, io.pressure, io.weight, memory.events, memory.events.local, memory.stat, memory.swap.events, pids.events
 
 * SETOF(TEXT, TEXT, BIGINT) key/subkey/value space separated - ```SELECT * FROM cgroup_setof_ksv(filename);```
-  * cgroup v1 examples: blkio.throttle.io_serviced and blkio.throttle.io_service_bytes
-  * cgroup v2 examples: 
+  * cgroup v1 examples: blkio.throttle.io_service_bytes, blkio.throttle.io_serviced
+  * cgroup v2 examples: <none known>
 
 * SETOF(TEXT, TEXT, FLOAT8) nested keyed - ```SELECT * FROM cgroup_setof_nkv(filename);```
-  * cgroup v1 examples: 
+  * cgroup v1 examples: <none known>
   * cgroup v2 examples: memory.pressure, cpu.pressure, io.max, io.stat
 
 In each case, the filename must be in the form ```<controller>.<metric>```, e.g. ```memory.stat```.
