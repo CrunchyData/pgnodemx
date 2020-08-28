@@ -73,13 +73,38 @@ static const char DIGIT_TABLE[200] =
 "90" "91" "92" "93" "94" "95" "96" "97" "98" "99";
 
 static int pg_ulltoa_n(uint64 value, char *a);
-static inline int decimalLength64(const uint64 v);
 
 #if PG_VERSION_NUM >= 120000
 #include "port/pg_bitutils.h"
 #else
 
-static const uint8 pg_leftmost_one_pos[256];
+/*
+ * Array giving the position of the left-most set bit for each possible
+ * byte value.  We count the right-most position as the 0th bit, and the
+ * left-most the 7th bit.  The 0th entry of the array should not be used.
+ *
+ * Note: this is not used by the functions in pg_bitutils.h when
+ * HAVE__BUILTIN_CLZ is defined, but we provide it anyway, so that
+ * extensions possibly compiled with a different compiler can use it.
+ */
+static const uint8 pg_leftmost_one_pos[256] = {
+	0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3,
+	4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+	5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+	5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+	6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+	6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+	6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+	6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
+};
 
 /*
  * pg_leftmost_one_pos64
@@ -110,6 +135,32 @@ pg_leftmost_one_pos64(uint64 word)
 #endif							/* HAVE__BUILTIN_CLZ */
 }
 #endif /* PG_VERSION_NUM >= 120000 */
+
+static inline int
+decimalLength64(const uint64 v)
+{
+	int			t;
+	static const uint64 PowersOfTen[] = {
+		UINT64CONST(1), UINT64CONST(10),
+		UINT64CONST(100), UINT64CONST(1000),
+		UINT64CONST(10000), UINT64CONST(100000),
+		UINT64CONST(1000000), UINT64CONST(10000000),
+		UINT64CONST(100000000), UINT64CONST(1000000000),
+		UINT64CONST(10000000000), UINT64CONST(100000000000),
+		UINT64CONST(1000000000000), UINT64CONST(10000000000000),
+		UINT64CONST(100000000000000), UINT64CONST(1000000000000000),
+		UINT64CONST(10000000000000000), UINT64CONST(100000000000000000),
+		UINT64CONST(1000000000000000000), UINT64CONST(10000000000000000000)
+	};
+
+	/*
+	 * Compute base-10 logarithm by dividing the base-2 logarithm by a
+	 * good-enough approximation of the base-2 logarithm of 10
+	 */
+	t = (pg_leftmost_one_pos64(v) + 1) * 1233 / 4096;
+	return t + (v >= PowersOfTen[t]);
+}
+
 #endif /* PG_VERSION_NUM < 130000 */
 
 /*
@@ -691,31 +742,6 @@ pg_ulltoa_n(uint64 value, char *a)
 		*a = (char) ('0' + value2);
 
 	return olength;
-}
-
-static inline int
-decimalLength64(const uint64 v)
-{
-	int			t;
-	static const uint64 PowersOfTen[] = {
-		UINT64CONST(1), UINT64CONST(10),
-		UINT64CONST(100), UINT64CONST(1000),
-		UINT64CONST(10000), UINT64CONST(100000),
-		UINT64CONST(1000000), UINT64CONST(10000000),
-		UINT64CONST(100000000), UINT64CONST(1000000000),
-		UINT64CONST(10000000000), UINT64CONST(100000000000),
-		UINT64CONST(1000000000000), UINT64CONST(10000000000000),
-		UINT64CONST(100000000000000), UINT64CONST(1000000000000000),
-		UINT64CONST(10000000000000000), UINT64CONST(100000000000000000),
-		UINT64CONST(1000000000000000000), UINT64CONST(10000000000000000000)
-	};
-
-	/*
-	 * Compute base-10 logarithm by dividing the base-2 logarithm by a
-	 * good-enough approximation of the base-2 logarithm of 10
-	 */
-	t = (pg_leftmost_one_pos64(v) + 1) * 1233 / 4096;
-	return t + (v >= PowersOfTen[t]);
 }
 
 #endif /* PG_VERSION_NUM < 130000 */
