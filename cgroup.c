@@ -38,6 +38,11 @@
 #include <sys/vfs.h>
 #include <unistd.h>
 
+#if PG_VERSION_NUM >= 110000
+#include "catalog/pg_type_d.h"
+#else
+#include "catalog/pg_type.h"
+#endif
 #include "fmgr.h"
 #if PG_VERSION_NUM >= 130000
 #include "lib/qunique.h"
@@ -49,6 +54,7 @@
 #include "utils/guc_tables.h"
 #include "utils/int8.h"
 #include "utils/memutils.h"
+#include "utils/varlena.h"
 
 #include "fileutils.h"
 #include "genutils.h"
@@ -60,6 +66,8 @@
 /* context gathering functions */
 static void create_default_cgpath(char *str, int curlen);
 static void init_or_reset_cgpath(void);
+static StringInfo candidate_controller_path(char *controller, char *r);
+static StringInfo check_and_fix_controller_path(char *controller, char *r);
 
 /* custom GUC vars */
 bool	containerized = false;
@@ -394,6 +402,352 @@ init_or_reset_cgpath(void)
 	}
 }
 
+
+
+
+/*
+ * Append an integer element to an integer array
+ */
+static int *
+intarr_append(int *permarr, size_t *permarrsize, int elem)
+{
+	Assert(permarr != NULL);
+
+	*permarrsize += 1;
+	permarr = (int *) repalloc(permarr, (*permarrsize) * sizeof(int));
+	permarr[*permarrsize - 1] = elem;
+
+	return permarr;
+}
+
+/*
+ * Take an array of int, and copy it minus an element
+ * at a specified position.
+ */
+static int *
+intarr_copy_minus_elem(int *oldarr, size_t oldsize, size_t elnum, size_t *newsize)
+{
+	int	   *newarr;
+	int		i;
+	int		j = 0;
+	size_t	size;
+
+	Assert(elnum < oldsize);
+	Assert(oldarr != NULL);
+
+	size = oldsize - 1;
+	*newsize = size;
+
+	/* are we removing the only element? */
+	if (size == 0)
+		return NULL;
+
+	newarr = (int *) palloc(size * sizeof(int));
+	for (i = 0; i < oldsize; ++i)
+	{
+		if (i != elnum)
+		{
+			newarr[j] = oldarr[i];
+			j++;
+		}
+	}
+
+	return newarr;
+}
+
+/*
+ * Take an array of int, and copy it.
+ */
+static int *
+intarr_copy(int *oldarr, size_t oldsize)
+{
+	int	   *newarr;
+	int		i;
+	Assert(oldarr != NULL);
+	Assert(oldsize != 0);
+
+	newarr = (int *) palloc(oldsize * sizeof(int));
+	for (i = 0; i < oldsize; ++i)
+		newarr[i] = oldarr[i];
+
+	return newarr;
+}
+
+/*
+ * Generate permutations origlist and return them as a list
+ * of array. Each array represents the indexes for a different
+ * permutation.
+ */
+static List *
+heap_permute(int *origarr, size_t origarrsize,
+			 int *permarr, size_t permarrsize,
+			 List *listofpermarr)
+{
+	int		i;
+
+	/*
+	 * We have recursed to the end of the original list,
+	 * so attach our permutation to the list of lists
+	 * and return it.
+	 */
+    if (origarr == NULL)
+		return lappend(listofpermarr, permarr);
+
+	for(i = 0; i < origarrsize; ++i)
+	{
+		/*
+		 * Get a copy of origarr except skipping
+		 * the current element.
+		 */
+		size_t	srcarrsize;
+		int	   *srcarr = intarr_copy_minus_elem(origarr, origarrsize, i, &srcarrsize);
+
+		/* initialize new permarr if required */
+		if (permarr == NULL)
+		{
+			permarr = (int *) palloc(0);
+			permarrsize = 0;
+		}
+
+		/* attach the current element to our permutation array */
+		permarr = intarr_append(permarr, &permarrsize, origarr[i]);
+
+	    listofpermarr = heap_permute(srcarr, srcarrsize,
+									 intarr_copy(permarr, permarrsize), permarrsize,
+									 listofpermarr);
+
+		/*
+		 * Create a next permarr by copying from the previous permarr
+		 * minus the previously added element.
+		 */
+		permarr = intarr_copy_minus_elem(permarr, permarrsize, permarrsize - 1, &permarrsize);
+	}
+
+	return listofpermarr;
+}
+
+/*
+ * Accept a string list (comma delimited list of items)
+ * and return a postgres list (List *) of strings, in which
+ * each ListCell is a different permutation of the original
+ * string list.
+ */
+#define MAX_PERM_ARRLEN		12
+static List *
+get_list_permutations(char *controller)
+{
+	char	   *rawstring = pstrdup(controller);
+	List	   *origlist = NIL;
+	int		   *origarr = NULL;
+	char	  **origarr_str = NULL;
+	int		   *permarr = NULL;
+	size_t		origarrsize = 0;
+	size_t		permarrsize = 0;
+	List	   *listofpermarr = NIL;
+	List	   *listofpermarr_str = NIL;
+	ListCell   *l;
+	int			i;
+
+	/*
+	 * If the controller name includes one or more ",", we need
+	 * to check all orderings to see which is the actual path.
+	 * 
+	 * Parse the list into individual tokens
+	 */
+	if (!SplitIdentifierString(rawstring, ',', &origlist))
+	{
+		elog(WARNING, "failed to parse controller string: %s", rawstring);
+		return NIL;
+	}
+
+	origarrsize = list_length(origlist);
+	if (origarrsize > MAX_PERM_ARRLEN)
+	{
+		elog(WARNING, "too many elements in controller string: %s", rawstring);
+		return NIL;
+	}
+
+	origarr_str = (char **) palloc(origarrsize * sizeof(char *));
+	i = 0;
+	foreach(l, origlist)
+	{
+		origarr_str[i] = pstrdup((char *) lfirst(l));
+		++i;
+	}
+
+	origarr = (int *) palloc(origarrsize * sizeof(int));
+	for (i = 0; i < origarrsize; ++i)
+		origarr[i] = i;
+
+	/* get list of permutation indexes */
+    listofpermarr = heap_permute(origarr, origarrsize,
+								 permarr, permarrsize,
+								 listofpermarr);
+
+	foreach(l, listofpermarr)
+	{
+		int		   *pidx = (int *) lfirst(l);
+		StringInfo	str = makeStringInfo();
+		int			j;
+
+		for(j = 0; j < origarrsize; ++j)
+		{
+			char   *tok = origarr_str[pidx[j]];
+
+			if (j == 0)
+				appendStringInfo(str, "%s", tok);
+			else
+				appendStringInfo(str, ",%s", tok);
+		}
+
+		listofpermarr_str = lappend(listofpermarr_str, str->data);
+	}
+
+	return listofpermarr_str;
+}
+
+/*
+ * Create candidate path based on controller string taking into account
+ * whether we are "containerized" or not.
+ */
+static StringInfo
+candidate_controller_path(char *controller, char *r)
+{
+	StringInfo		str = makeStringInfo();
+
+	if (!containerized)
+	{
+		/*
+		 * not containerized: controller files are in path contained
+		 * in PROC_CGROUP_FILE concatenated to "<cgrouproot>/<controller>/"
+		 */
+		appendStringInfo(str, "%s/%s/%s", cgrouproot, controller, r);
+	}
+	else
+	{
+		/*
+		 * containerized: controller files are in path contained
+		 * in "<cgrouproot>/<controller>/" directly
+		 */
+		appendStringInfo(str, "%s/%s", cgrouproot, controller);
+	}
+
+	return str;
+}
+
+/*
+ * Attempt to determine and return a valid path for a cgroup controller.
+ * 
+ * If no directories are found, return "Controller_Not_Found" as the
+ * path. If we were to raise an ERROR it would prevent Postgres from starting
+ * since this extension is preloaded, which seems less friendly than causing
+ * later queries to generate errors. For example:
+ * 
+ *   could not open file "Controller_Not_Found/cpuacct.usage"
+ *   for reading: No such file or directory
+ * 
+ * At least would clue us in that something went wrong without causing an
+ * outage of postgres itself.
+ */
+static StringInfo
+check_and_fix_controller_path(char *controller, char *r)
+{
+	StringInfo		str = candidate_controller_path(controller, r);
+
+	if (strchr(controller, ',') == NULL)
+	{
+		/*
+		 * The controller name does not include "," and is therefore
+		 * a single controller.
+		 */
+
+		/*
+		 * Should not happen (I think), but if the directory does
+		 * not exist, mark it as such for debugging purposes.
+		 * But avoid throwing an error, which would prevent Postgres
+		 * from starting up entirely.
+		 */
+		if (access(str->data, F_OK) != 0)
+		{
+			resetStringInfo(str);
+			appendStringInfoString(str, "Controller_Not_Found");
+		}
+
+		return str;
+	}
+	else
+	{
+		/*
+		 * The controller name includes "," and is therefore a list
+		 * of controllers. It turns out that the list ordering in
+		 * /proc/self/cgroup might not match the list ordering used
+		 * for the cgroupfs in some circumstances. But first check the
+		 * proposed path based on /proc/self/cgroup to see if it
+		 * actually exists. If so, return that.
+		 */
+		if (access(str->data, F_OK) == 0)
+			return str;
+		else
+		{
+			/* if not, try the alternative orderings */
+			List	   *elemlist = get_list_permutations(controller);
+			ListCell   *l;
+
+			foreach(l, elemlist)
+			{
+				char   *pcontroller = (char *) lfirst(l);
+
+				resetStringInfo(str);
+				str = candidate_controller_path(pcontroller, r);
+				if (access(str->data, F_OK) == 0)
+					return str;
+			}
+
+			/* none of the candidates were valid */
+			resetStringInfo(str);
+			appendStringInfoString(str, "Controller_Not_Found");
+
+			return str;
+		}
+	}
+}
+
+/*
+CREATE FUNCTION permute_list(TEXT)
+RETURNS SETOF TEXT
+AS '$libdir/pgnodemx', 'pgnodemx_permute_list'
+LANGUAGE C STABLE STRICT;
+*/
+/* function return signatures */
+Oid cg_text_sig[] = {TEXTOID};
+/* debug function */
+PG_FUNCTION_INFO_V1(pgnodemx_permute_list);
+Datum
+pgnodemx_permute_list(PG_FUNCTION_ARGS)
+{
+	char	   *controller = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	List	   *elemlist = NIL;
+	ListCell   *l;
+	char	 ***values;
+	int			nrow = 0;
+	int			ncol = 1;
+	int			i = 0;
+
+	elemlist = get_list_permutations(controller);
+	nrow = list_length(elemlist);
+
+	values = (char ***) palloc(nrow * sizeof(char **));
+	foreach(l, elemlist)
+	{
+		values[i] = (char **) palloc(ncol * sizeof(char *));
+
+		values[i][0] = pstrdup((char *) lfirst(l));
+		++i;
+	}
+
+	return form_srf(fcinfo, values, nrow, ncol, cg_text_sig);
+}
+
 void
 set_cgpath(void)
 {
@@ -413,7 +767,7 @@ set_cgpath(void)
 		 */
 		int				nlines;
 		char		  **lines;
-		StringInfo		str = makeStringInfo();
+		StringInfo		str;
 		int				i;
 		char		   *defpath;
 
@@ -436,6 +790,12 @@ set_cgpath(void)
 			 * Sometimes the <controller> part is further divided
 			 * into key-value, e.g. "name=systemd" in which case
 			 * "systemd" actually corresponds to the directory name.
+			 * 
+			 * Sometimes the <controller> part is further divided
+			 * into a list of controllers, e.g. "cpu,cpuacct" in which case
+			 * the directory name might be based on either ordering of
+			 * "cpu" and "cpuacct". In this case more work is required to
+			 * discover the actual path in use.
 			 */
 			char   *line = lines[i];
 			char   *p = strchr(line, ':');
@@ -467,24 +827,8 @@ set_cgpath(void)
 			if (q)
 				controller = q + 1;
 
-			resetStringInfo(str);
-
-			if (!containerized)
-			{
-				/*
-				 * not containerized: controller files are in path contained
-				 * in PROC_CGROUP_FILE concatenated to "<cgrouproot>/<controller>/"
-				 */
-				appendStringInfo(str, "%s/%s/%s", cgrouproot, controller, r);
-			}
-			else
-			{
-				/*
-				 * containerized: controller files are in path contained
-				 * in "<cgrouproot>/<controller>/" directly
-				 */
-				appendStringInfo(str, "%s/%s", cgrouproot, controller);
-			}
+			/* get valid path to controller */
+			str = check_and_fix_controller_path(controller, r);
 
 			cgpath->keys[i] = MemoryContextStrdup(TopMemoryContext, controller);
 			cgpath->values[i] = MemoryContextStrdup(TopMemoryContext, str->data);
