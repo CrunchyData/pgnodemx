@@ -367,7 +367,11 @@ create_default_cgpath(char *str, int curlen)
 
 	/* create the default record */
 	cgpath->keys[cgpath->nkvp - 1] = MemoryContextStrdup(TopMemoryContext, "cgroup");
-	cgpath->values[cgpath->nkvp - 1] = MemoryContextStrdup(TopMemoryContext, str);
+	if (str != NULL)
+		cgpath->values[cgpath->nkvp - 1] = MemoryContextStrdup(TopMemoryContext, str);
+	else
+		cgpath->values[cgpath->nkvp - 1] = MemoryContextStrdup(TopMemoryContext,
+														"Default_Controller_Not_Found");
 }
 
 static void
@@ -769,7 +773,7 @@ set_cgpath(void)
 		char		  **lines;
 		StringInfo		str;
 		int				i;
-		char		   *defpath;
+		char		   *defpath = NULL;
 
 		lines = read_nlsv(PROC_CGROUP_FILE, &nlines);
 		if (nlines == 0)
@@ -849,7 +853,7 @@ set_cgpath(void)
 		int				nvals;
 		char		  **controllers;
 		char		   *rawstr;
-		char		   *defpath;
+		char		   *defpath = NULL;
 		int				i;
 
 		/* read PROC_CGROUP_FILE, which for v2 has one line */
