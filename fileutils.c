@@ -323,9 +323,9 @@ get_statfs_path(char *pname, int *nrow, int *ncol)
 				errmsg("pgnodemx: statfs error on path %s: %m", pname)));
 	}
 
-	values = (char ***) palloc((*nrow) * sizeof(char ***));
+	values = (char ***) palloc((*nrow) * sizeof(char **));
 	for (i = 0; i < (*nrow); ++i)
-		values[i] = (char **) palloc((*ncol) * sizeof(char **));
+		values[i] = (char **) palloc((*ncol) * sizeof(char *));
 
 	values[0][0] = uint64_to_string((uint64) major(fs.st_dev));
 	values[0][1] = uint64_to_string((uint64) minor(fs.st_dev));

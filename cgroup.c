@@ -537,8 +537,8 @@ heap_permute(int *origarr, size_t origarrsize,
  * string list.
  */
 #define MAX_PERM_ARRLEN		12
-static List *
-get_list_permutations(char *controller)
+static char ***
+get_list_permutations(char *controller, int ncol, int *nrow)
 {
 	char	   *rawstring = pstrdup(controller);
 	List	   *origlist = NIL;
@@ -548,9 +548,9 @@ get_list_permutations(char *controller)
 	size_t		origarrsize = 0;
 	size_t		permarrsize = 0;
 	List	   *listofpermarr = NIL;
-	List	   *listofpermarr_str = NIL;
 	ListCell   *l;
 	int			i;
+	char	 ***values;
 
 	/*
 	 * If the controller name includes one or more ",", we need
@@ -561,14 +561,14 @@ get_list_permutations(char *controller)
 	if (!SplitIdentifierString(rawstring, ',', &origlist))
 	{
 		elog(WARNING, "failed to parse controller string: %s", rawstring);
-		return NIL;
+		return NULL;
 	}
 
 	origarrsize = list_length(origlist);
 	if (origarrsize > MAX_PERM_ARRLEN)
 	{
 		elog(WARNING, "too many elements in controller string: %s", rawstring);
-		return NIL;
+		return NULL;
 	}
 
 	origarr_str = (char **) palloc(origarrsize * sizeof(char *));
@@ -588,6 +588,10 @@ get_list_permutations(char *controller)
 								 permarr, permarrsize,
 								 listofpermarr);
 
+	*nrow = list_length(listofpermarr);
+	values = (char ***) palloc((*nrow) * sizeof(char **));
+
+	i = 0;
 	foreach(l, listofpermarr)
 	{
 		int		   *pidx = (int *) lfirst(l);
@@ -604,10 +608,12 @@ get_list_permutations(char *controller)
 				appendStringInfo(str, ",%s", tok);
 		}
 
-		listofpermarr_str = lappend(listofpermarr_str, str->data);
+		values[i] = (char **) palloc(ncol * sizeof(char *));
+		values[i][0] = pstrdup(str->data);
+		++i;
 	}
 
-	return listofpermarr_str;
+	return values;
 }
 
 /*
@@ -694,12 +700,15 @@ check_and_fix_controller_path(char *controller, char *r)
 		else
 		{
 			/* if not, try the alternative orderings */
-			List	   *elemlist = get_list_permutations(controller);
-			ListCell   *l;
+			char	 ***values;
+			int			nrow = 0;
+			int			ncol = 1;
+			int			i;
 
-			foreach(l, elemlist)
+			values = get_list_permutations(controller, ncol, &nrow);
+			for (i = 0; i < nrow; ++i)
 			{
-				char   *pcontroller = (char *) lfirst(l);
+				char   *pcontroller = values[i][0];
 
 				resetStringInfo(str);
 				str = candidate_controller_path(pcontroller, r);
@@ -730,25 +739,11 @@ Datum
 pgnodemx_permute_list(PG_FUNCTION_ARGS)
 {
 	char	   *controller = text_to_cstring(PG_GETARG_TEXT_PP(0));
-	List	   *elemlist = NIL;
-	ListCell   *l;
 	char	 ***values;
 	int			nrow = 0;
 	int			ncol = 1;
-	int			i = 0;
 
-	elemlist = get_list_permutations(controller);
-	nrow = list_length(elemlist);
-
-	values = (char ***) palloc(nrow * sizeof(char **));
-	foreach(l, elemlist)
-	{
-		values[i] = (char **) palloc(ncol * sizeof(char *));
-
-		values[i][0] = pstrdup((char *) lfirst(l));
-		++i;
-	}
-
+	values = get_list_permutations(controller, ncol, &nrow);
 	return form_srf(fcinfo, values, nrow, ncol, cg_text_sig);
 }
 

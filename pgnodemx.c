@@ -463,7 +463,7 @@ pgnodemx_cgroup_setof_ksv(PG_FUNCTION_ARGS)
 			else if (ntok == 2)
 			{
 				/* for the two column case, expand and shift the values right */
-				values[i] = repalloc(values[i], ncol * sizeof(char **));
+				values[i] = (char **) repalloc(values[i], ncol * sizeof(char *));
 				values[i][2] = values[i][1];
 				values[i][1] = values[i][0];
 				values[i][0] = pstrdup("all");
