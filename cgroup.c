@@ -406,59 +406,6 @@ init_or_reset_cgpath(void)
 	}
 }
 
-
-
-
-/*
- * Append an integer element to an integer array
- */
-static int *
-intarr_append(int *permarr, size_t *permarrsize, int elem)
-{
-	Assert(permarr != NULL);
-
-	*permarrsize += 1;
-	permarr = (int *) repalloc(permarr, (*permarrsize) * sizeof(int));
-	permarr[*permarrsize - 1] = elem;
-
-	return permarr;
-}
-
-/*
- * Take an array of int, and copy it minus an element
- * at a specified position.
- */
-static int *
-intarr_copy_minus_elem(int *oldarr, size_t oldsize, size_t elnum, size_t *newsize)
-{
-	int	   *newarr;
-	int		i;
-	int		j = 0;
-	size_t	size;
-
-	Assert(elnum < oldsize);
-	Assert(oldarr != NULL);
-
-	size = oldsize - 1;
-	*newsize = size;
-
-	/* are we removing the only element? */
-	if (size == 0)
-		return NULL;
-
-	newarr = (int *) palloc(size * sizeof(int));
-	for (i = 0; i < oldsize; ++i)
-	{
-		if (i != elnum)
-		{
-			newarr[j] = oldarr[i];
-			j++;
-		}
-	}
-
-	return newarr;
-}
-
 /*
  * Take an array of int, and copy it.
  */
@@ -466,92 +413,103 @@ static int *
 intarr_copy(int *oldarr, size_t oldsize)
 {
 	int	   *newarr;
-	int		i;
-	Assert(oldarr != NULL);
-	Assert(oldsize != 0);
+	int		sizebytes = oldsize * sizeof(int);
 
-	newarr = (int *) palloc(oldsize * sizeof(int));
-	for (i = 0; i < oldsize; ++i)
-		newarr[i] = oldarr[i];
+	Assert(oldarr != NULL);
+	Assert(sizebytes != 0);
+
+	newarr = (int *) palloc(sizebytes);
+	memcpy(newarr, oldarr, sizebytes);
 
 	return newarr;
 }
 
+static void
+swap (int *arr, int a, int b)
+{
+	int		t = arr[a];
+
+	arr[a] = arr[b];
+	arr[b] = t;
+}
+
 /*
- * Generate permutations origlist and return them as a list
- * of array. Each array represents the indexes for a different
- * permutation.
+ * Generate permutations of origarr indexes, and return them as an array
+ * of integer array. Each array represents the indexes for a different
+ * permutation. Use's "heap's algorithm".
+ * See https://en.wikipedia.org/wiki/Heap%27s_algorithm
  */
-static List *
+static void
 heap_permute(int *origarr, size_t origarrsize,
-			 int *permarr, size_t permarrsize,
-			 List *listofpermarr)
+			 size_t level,
+			 int **arrofpermarr, int *nrow)
 {
 	int		i;
 
-	/*
-	 * We have recursed to the end of the original list,
-	 * so attach our permutation to the list of lists
-	 * and return it.
-	 */
-    if (origarr == NULL)
-		return lappend(listofpermarr, permarr);
-
-	for(i = 0; i < origarrsize; ++i)
+    if (level == 1)
 	{
 		/*
-		 * Get a copy of origarr except skipping
-		 * the current element.
+		 * We have recursed to the end of the original array of indexes,
+		 * so attach our permutation to the array of arrays and return it.
 		 */
-		size_t	srcarrsize;
-		int	   *srcarr = intarr_copy_minus_elem(origarr, origarrsize, i, &srcarrsize);
-
-		/* initialize new permarr if required */
-		if (permarr == NULL)
-		{
-			permarr = (int *) palloc(0);
-			permarrsize = 0;
-		}
-
-		/* attach the current element to our permutation array */
-		permarr = intarr_append(permarr, &permarrsize, origarr[i]);
-
-	    listofpermarr = heap_permute(srcarr, srcarrsize,
-									 intarr_copy(permarr, permarrsize), permarrsize,
-									 listofpermarr);
-
-		/*
-		 * Create a next permarr by copying from the previous permarr
-		 * minus the previously added element.
-		 */
-		permarr = intarr_copy_minus_elem(permarr, permarrsize, permarrsize - 1, &permarrsize);
+		arrofpermarr[*nrow] = intarr_copy(origarr, origarrsize);
+		++(*nrow);
 	}
+	else
+	{
+        /*
+		 * Generate permutations with levelth unaltered
+		 * Initially level == length(origarr) == origarrsize
+		 */
+		heap_permute(origarr, origarrsize, level - 1, arrofpermarr, nrow);
 
-	return listofpermarr;
+		for (i = 0; i < level - 1; ++i)
+		{
+			/* Swap choice dependent on parity of level (even or odd) */
+			if (level % 2 == 0)
+			{
+				/*
+				 * If level is even, swap ith and
+				 * (level-1)th i.e (last) element
+				 */
+                swap(origarr, i, level-1);
+			}
+            else
+			{
+				/*
+				 * If level is odd, swap 0th i.e (first) and (level-1)th
+				 * i.e (last) element
+				 */
+                swap(origarr, 0, level-1);
+			}
+
+			heap_permute(origarr, origarrsize, level - 1, arrofpermarr, nrow);
+		}
+	}
 }
 
 /*
  * Accept a string list (comma delimited list of items)
- * and return a postgres list (List *) of strings, in which
- * each ListCell is a different permutation of the original
- * string list.
+ * and return an array of strings representing all of the
+ * different permutation of the original string list.
  */
-#define MAX_PERM_ARRLEN		12
+#define MAX_PERM_ARRLEN		10
 static char ***
 get_list_permutations(char *controller, int ncol, int *nrow)
 {
 	char	   *rawstring = pstrdup(controller);
 	List	   *origlist = NIL;
+	ListCell   *l;
 	int		   *origarr = NULL;
 	char	  **origarr_str = NULL;
-	int		   *permarr = NULL;
 	size_t		origarrsize = 0;
-	size_t		permarrsize = 0;
-	List	   *listofpermarr = NIL;
-	ListCell   *l;
+	int		  **arrofpermarr = NULL;
 	int			i;
 	char	 ***values;
-
+	int			cntr;
+	int			fact = 1;
+	StringInfo	str = makeStringInfo();
+ 
 	/*
 	 * If the controller name includes one or more ",", we need
 	 * to check all orderings to see which is the actual path.
@@ -560,14 +518,14 @@ get_list_permutations(char *controller, int ncol, int *nrow)
 	 */
 	if (!SplitIdentifierString(rawstring, ',', &origlist))
 	{
-		elog(WARNING, "failed to parse controller string: %s", rawstring);
+		elog(WARNING, "failed to parse controller string: %s", controller);
 		return NULL;
 	}
 
 	origarrsize = list_length(origlist);
 	if (origarrsize > MAX_PERM_ARRLEN)
 	{
-		elog(WARNING, "too many elements in controller string: %s", rawstring);
+		elog(WARNING, "too many elements in controller string: %s", controller);
 		return NULL;
 	}
 
@@ -583,21 +541,28 @@ get_list_permutations(char *controller, int ncol, int *nrow)
 	for (i = 0; i < origarrsize; ++i)
 		origarr[i] = i;
 
-	/* get list of permutation indexes */
-    listofpermarr = heap_permute(origarr, origarrsize,
-								 permarr, permarrsize,
-								 listofpermarr);
+	/* precalculate how many permutations we should get back */
+	for (cntr = 1; cntr <= origarrsize; cntr++)
+		fact = fact * cntr;
 
-	*nrow = list_length(listofpermarr);
+	/* make space for the permutation arrays */
+	arrofpermarr = (int **) palloc(fact * sizeof(int *));
+
+	/* get list of permutation indexes */
+	heap_permute(origarr, origarrsize, origarrsize, arrofpermarr, nrow);
+	if (*nrow != fact)
+		elog(WARNING, "expected %d permutations, got %d", fact, *nrow);
+
+	/* make space for the return tuples */
 	values = (char ***) palloc((*nrow) * sizeof(char **));
 
-	i = 0;
-	foreach(l, listofpermarr)
+	/* map the original list back to the permuted indexes */
+	for (i = 0; i < (*nrow); ++i)
 	{
-		int		   *pidx = (int *) lfirst(l);
-		StringInfo	str = makeStringInfo();
+		int		   *pidx = arrofpermarr[i];
 		int			j;
 
+		resetStringInfo(str);
 		for(j = 0; j < origarrsize; ++j)
 		{
 			char   *tok = origarr_str[pidx[j]];
@@ -610,9 +575,10 @@ get_list_permutations(char *controller, int ncol, int *nrow)
 
 		values[i] = (char **) palloc(ncol * sizeof(char *));
 		values[i][0] = pstrdup(str->data);
-		++i;
+		pfree(arrofpermarr[i]);
 	}
 
+	pfree(arrofpermarr);
 	return values;
 }
 
