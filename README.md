@@ -134,6 +134,18 @@ SELECT * FROM fsinfo(path text);
 ```
 * Returns major_number, minor_number, type, block_size, blocks, total_bytes, free_blocks, free_bytes, available_blocks, available_bytes, total_file_nodes, free_file_nodes, and mount_flags for the file system on which ```path``` is mounted.
 
+### Get current FIPS mode
+```
+SELECT fips_mode();
+```
+* Returns TRUE if openssl is currently running in FIPS mode, otherwise FALSE.
+
+### Get source C library path for a function symbol
+```
+SELECT symbol_filename(sym_name text);
+```
+* Returns the source C library from whence the C function sym_name comes. Returns NULL on any errors.
+
 ## Kubernetes DownwardAPI Related Functions
 
 For more detailed information about the Kubernetes DownwardAPI please see: https://kubernetes.io/docs/tasks/inject-data-application/downward-api-volume-expose-pod-information/

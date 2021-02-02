@@ -33,6 +33,10 @@
 #error "pgnodemx only builds with PostgreSQL 9.5 or later"
 #endif
 
+#include <dlfcn.h>
+#ifdef USE_OPENSSL
+#include <openssl/ssl.h>
+#endif
 #include <unistd.h>
 
 #include "catalog/pg_authid.h"
@@ -999,4 +1003,58 @@ pgnodemx_kdapi_scalar_bigint(PG_FUNCTION_ARGS)
 	fqpath = get_fq_kdapi_path(fcinfo);
 
 	PG_RETURN_INT64(get_int64_from_file(fqpath));
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_fips_mode);
+Datum
+pgnodemx_fips_mode(PG_FUNCTION_ARGS)
+{
+#ifdef USE_OPENSSL
+	if (FIPS_mode())
+		PG_RETURN_BOOL(true);
+	else
+		PG_RETURN_BOOL(false);
+#else
+	PG_RETURN_BOOL(false);
+#endif
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_symbol_filename);
+Datum
+pgnodemx_symbol_filename(PG_FUNCTION_ARGS)
+{
+	const char *sym_name = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	const void *sym_addr;
+	Dl_info		info;  
+	int			rc;
+	char	   *msg;
+
+	/* according to the man page, clear any residual error message first */
+	msg = dlerror();
+
+	/* grab the symbol address using the default path */
+	sym_addr = dlsym(RTLD_DEFAULT, sym_name);
+
+	/* any error means we could not find the symbol by this name */
+	msg = dlerror();
+	if (msg)
+		PG_RETURN_NULL();
+
+	/* grab the source library */
+	rc = dladdr(sym_addr, &info);
+	if (!rc)
+		PG_RETURN_NULL();
+	else
+	{
+		char   *tmppath = realpath(info.dli_fname, NULL);
+		char   *rpath;
+
+		if (tmppath == NULL)
+			PG_RETURN_NULL();
+
+		rpath = pstrdup(tmppath);
+		free(tmppath);
+
+		PG_RETURN_TEXT_P(cstring_to_text(rpath));
+	}
 }
