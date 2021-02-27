@@ -1009,6 +1009,9 @@ PG_FUNCTION_INFO_V1(pgnodemx_fips_mode);
 Datum
 pgnodemx_fips_mode(PG_FUNCTION_ARGS)
 {
+	/* Limit use to members of special role */
+	pgnodemx_check_role();
+
 #ifdef USE_OPENSSL
 	if (FIPS_mode())
 		PG_RETURN_BOOL(true);
@@ -1028,6 +1031,9 @@ pgnodemx_symbol_filename(PG_FUNCTION_ARGS)
 	Dl_info		info;  
 	int			rc;
 	char	   *msg;
+
+	/* Limit use to members of special role */
+	pgnodemx_check_role();
 
 	/* according to the man page, clear any residual error message first */
 	msg = dlerror();
