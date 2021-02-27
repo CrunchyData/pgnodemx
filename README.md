@@ -168,6 +168,16 @@ SELECT * FROM kdapi_setof_kv('filename');
 SELECT kdapi_scalar_bigint('filename text');
 ```
 
+## General Information Functions
+
+### Get pgnodemx version information
+```
+SELECT pgnodemx_version();
+```
+* If VSTR environment valiable is set at compile time, returns that value 
+* Otherwise returns the value of the short git hash
+* If not compiling from the git repository and VSTR is unset, returns "none"
+
 ## Configuration
 
 * Add pgnodemx to shared_preload_libraries in postgresql.conf.

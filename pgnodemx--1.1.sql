@@ -1,4 +1,4 @@
-/* contrib/pgnodemx/pgnodemx--1.0.sql */
+/* contrib/pgnodemx/pgnodemx--1.1.sql */
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION pgnodemx" to load this file. \quit
@@ -214,4 +214,9 @@ LANGUAGE C STABLE STRICT;
 CREATE FUNCTION symbol_filename(TEXT)
 RETURNS TEXT
 AS 'MODULE_PATHNAME', 'pgnodemx_symbol_filename'
+LANGUAGE C STABLE STRICT;
+
+CREATE FUNCTION pgnodemx_version()
+RETURNS TEXT
+AS 'MODULE_PATHNAME', 'pgnodemx_version'
 LANGUAGE C STABLE STRICT;

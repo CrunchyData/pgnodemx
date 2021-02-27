@@ -1058,3 +1058,10 @@ pgnodemx_symbol_filename(PG_FUNCTION_ARGS)
 		PG_RETURN_TEXT_P(cstring_to_text(rpath));
 	}
 }
+
+PG_FUNCTION_INFO_V1(pgnodemx_version);
+Datum
+pgnodemx_version(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_TEXT_P(cstring_to_text(GIT_HASH));
+}
