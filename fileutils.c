@@ -167,10 +167,14 @@ pgnodemx_check_role(void)
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("role %s does not exist", PGNODEMX_MONITOR_ROLE)));
-#else
+#else /* PG_VERSION_NUM >= 100000 */
 #define PGNODEMX_MONITOR_ROLE	"pg_monitor"
+#if PG_VERSION_NUM > 130000
+	Oid			checkoid = ROLE_PG_MONITOR;
+#else /* PG_VERSION_NUM <= 130000 */
 	Oid			checkoid = DEFAULT_ROLE_MONITOR;
-#endif
+#endif /* PG_VERSION_NUM > 130000 */
+#endif /* PG_VERSION_NUM < 100000 */
 
 	/* Limit use to members of the specified role */
 	if (!is_member_of_role(GetUserId(), checkoid))
