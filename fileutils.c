@@ -169,11 +169,11 @@ pgnodemx_check_role(void)
 				 errmsg("role %s does not exist", PGNODEMX_MONITOR_ROLE)));
 #else /* PG_VERSION_NUM >= 100000 */
 #define PGNODEMX_MONITOR_ROLE	"pg_monitor"
-#if PG_VERSION_NUM > 130000
+#if PG_VERSION_NUM >= 140000
 	Oid			checkoid = ROLE_PG_MONITOR;
-#else /* PG_VERSION_NUM <= 130000 */
+#else /* PG_VERSION_NUM < 140000 */
 	Oid			checkoid = DEFAULT_ROLE_MONITOR;
-#endif /* PG_VERSION_NUM > 130000 */
+#endif /* >= 140000 */
 #endif /* PG_VERSION_NUM < 100000 */
 
 	/* Limit use to members of the specified role */
