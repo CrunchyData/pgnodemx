@@ -132,7 +132,7 @@ SELECT * FROM proc_network_stats();
 ```
 SELECT * FROM fsinfo(path text);
 ```
-* Returns major_number, minor_number, type, block_size, blocks, total_bytes, free_blocks, free_bytes, available_blocks, available_bytes, total_file_nodes, free_file_nodes, and mount_flags for the file system on which ```path``` is mounted.
+* Returns major_number, minor_number, type, block_size, blocks, total_bytes, free_blocks, free_bytes, available_blocks, available_bytes, total_file_nodes, free_file_nodes, and mount_flags for the file system on which ```path``` is mounted.  Note: Some filesystems can return unexpected values (like MAX_UINT64) if these numbers cannot be determined.
 
 ### Get current FIPS mode
 ```
