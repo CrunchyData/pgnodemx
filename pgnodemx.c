@@ -82,9 +82,9 @@ Oid text_text_sig[] = {TEXTOID, TEXTOID};
 Oid text_bigint_sig[] = {TEXTOID, INT8OID};
 Oid text_text_bigint_sig[] = {TEXTOID, TEXTOID, INT8OID};
 Oid text_text_float8_sig[] = {TEXTOID, TEXTOID, FLOAT8OID};
-Oid _2_bigint_text_9_bigint_text_sig[] = {INT8OID, INT8OID, TEXTOID, INT8OID,
-										  INT8OID, INT8OID, INT8OID, INT8OID, INT8OID,
-										  INT8OID, INT8OID, INT8OID, TEXTOID};
+Oid _2_numeric_text_9_numeric_text_sig[] = {NUMERICOID, NUMERICOID, TEXTOID, NUMERICOID,
+										  NUMERICOID, NUMERICOID, NUMERICOID, NUMERICOID, NUMERICOID,
+										  NUMERICOID, NUMERICOID, NUMERICOID, TEXTOID};
 Oid _4_bigint_6_text_sig[] = {INT8OID, INT8OID, INT8OID, INT8OID,
 							  TEXTOID, TEXTOID, TEXTOID, TEXTOID, TEXTOID, TEXTOID};
 Oid bigint_bigint_text_11_bigint_sig[] = {INT8OID, INT8OID, TEXTOID,
@@ -886,7 +886,7 @@ pgnodemx_fsinfo(PG_FUNCTION_ARGS)
 	char   *pname = text_to_cstring(PG_GETARG_TEXT_PP(0));
 
 	values = get_statfs_path(pname, &nrow, &ncol);
-	return form_srf(fcinfo, values, nrow, ncol, _2_bigint_text_9_bigint_text_sig);
+	return form_srf(fcinfo, values, nrow, ncol, _2_numeric_text_9_numeric_text_sig);
 }
 
 #define HDR_LINES	2
