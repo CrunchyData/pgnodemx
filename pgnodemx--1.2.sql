@@ -1,4 +1,4 @@
-/* contrib/pgnodemx/pgnodemx--1.1.sql */
+/* contrib/pgnodemx/pgnodemx--1.2.sql */
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION pgnodemx" to load this file. \quit
@@ -173,18 +173,18 @@ LANGUAGE C STABLE STRICT;
 CREATE FUNCTION fsinfo
 (
   IN pathname TEXT,
-  OUT major_number BIGINT,
-  OUT minor_number BIGINT,
+  OUT major_number NUMERIC,
+  OUT minor_number NUMERIC,
   OUT type TEXT,
-  OUT block_size BIGINT,
-  OUT blocks BIGINT,
-  OUT total_bytes BIGINT,
-  OUT free_blocks BIGINT,
-  OUT free_bytes BIGINT,
-  OUT available_blocks BIGINT,
-  OUT available_bytes BIGINT,
-  OUT total_file_nodes BIGINT,
-  OUT free_file_nodes BIGINT,
+  OUT block_size NUMERIC,
+  OUT blocks NUMERIC,
+  OUT total_bytes NUMERIC,
+  OUT free_blocks NUMERIC,
+  OUT free_bytes NUMERIC,
+  OUT available_blocks NUMERIC,
+  OUT available_bytes NUMERIC,
+  OUT total_file_nodes NUMERIC,
+  OUT free_file_nodes NUMERIC,
   OUT mount_flags TEXT
 )
 RETURNS SETOF record
