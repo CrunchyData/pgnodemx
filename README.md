@@ -174,7 +174,7 @@ SELECT kdapi_scalar_bigint('filename text');
 ```
 SELECT pgnodemx_version();
 ```
-* If VSTR environment valiable is set at compile time, returns that value 
+* If VSTR environment variable is set at compile time, returns that value
 * Otherwise returns the value of the short git hash
 * If not compiling from the git repository and VSTR is unset, returns "none"
 
