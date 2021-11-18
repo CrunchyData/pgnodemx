@@ -388,15 +388,19 @@ parse_quoted_string(char **source)
 			switch (c) {
 				case '\\':
 					*dst++ = '\\';
+					src++;
 					break;
 				case 'n':
 					*dst++ = '\n';
+					src++;
 					break;
 				case 't':
 					*dst++ = '\t';
+					src++;
 					break;
 				case quote:
 					*dst++ = quote;
+					src++;
 					break;
 				default:			/* unrecognized escape just pass through; XXX: add back in the slash? */
 					*dst++ = *src++;
@@ -407,32 +411,38 @@ parse_quoted_string(char **source)
 		else
 		{
 			lastSlash = (c == '\\');
-			
-			if (c == quote && src[1] == '\0')
-				break;				/* skip trailing quote */
 
-			if (!lastSlash)
+			if (c == quote && src[1] == '\0')
+			{
+				src++;
+				break;				/* skip trailing quote without copying */
+			}
+
+			if (lastSlash)
+				src++;
+			else
 				*dst++ = *src++;
+
 		}
 	}
 
 	*dst = '\0';
 	*source = src;
-	
+
 	return ret;
 }
 
 /*
  * Parse tokens from a "key equals quoted value" line.
  * Examples (from Kubernetes Downward API):
- * 
+ *
  *   cluster="test-cluster1"
  *   rack="rack-22"
  *   zone="us-est-coast"
  *   var="abc=123"
  *   multiline="multi\nline"
  *   quoted="{\"quoted\":\"json\"}"
- * 
+ *
  * Return two tokens; strip the quotes around the second one.
  * If exactly two tokens are not found, throw an error.
  */
@@ -465,7 +475,7 @@ parse_keqv_line(char *line)
 			}
 		}
 	}
-	
+
 	/* line should have exactly two tokens */
 	if (ntok != 2)
 		ereport(ERROR,
