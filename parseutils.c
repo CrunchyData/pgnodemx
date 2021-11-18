@@ -355,23 +355,25 @@ parse_ss_line(char *line, int *ntok)
 }
 
 /*
- * strip_quotes (lifted and modifed from src/bin/psql/stringutils)
+ * parse_quoted_string
  *
- * Remove quotes from the string at *source.  Leading and trailing occurrences
- * of 'quote' are removed.
+ * Remove quotes and escapes from the string at **source.  Returns a new palloc() string with the contents.
  *
- * Note that the source string is overwritten in-place.
  */
-void
-strip_quotes(char *source, char quote)
+char*
+parse_quoted_string(char **source)
 {
 	char	   *src;
 	char	   *dst;
+	bool        lastSlash = false;
+	const char  quote = '"';
 
 	Assert(source != NULL);
+	Assert(*source != NULL);
 	Assert(quote != '\0');
 
-	src = dst = source;
+	src = *source;
+	dst = palloc0(strlen(src));
 
 	if (*src && *src == quote)
 		src++;					/* skip leading quote */
@@ -380,13 +382,43 @@ strip_quotes(char *source, char quote)
 	{
 		char		c = *src;
 
-		if (c == quote && src[1] == '\0')
-			break;				/* skip trailing quote */
+		if (lastSlash)
+		{
+			switch (c) {
+				case '\\':
+					*dst++ = '\\';
+					break;
+				case 'n':
+					*dst++ = '\n';
+					break;
+				case 't':
+					*dst++ = '\t';
+					break;
+				case quote:
+					*dst++ = quote;
+					break;
+				default:			/* unrecognized escape just pass through; XXX: add back in the slash? */
+					*dst++ = *src++;
+					break;
+			}
+			lastSlash = false;
+		}
+		else
+		{
+			lastSlash = (c == '\\');
+			
+			if (c == quote && src[1] == '\0')
+				break;				/* skip trailing quote */
 
-		*dst++ = *src++;
+			if (!lastSlash)
+				*dst++ = *src++;
+		}
 	}
 
 	*dst = '\0';
+	*source = src;
+	
+	return dst;
 }
 
 /*
@@ -396,6 +428,9 @@ strip_quotes(char *source, char quote)
  *   cluster="test-cluster1"
  *   rack="rack-22"
  *   zone="us-est-coast"
+ *   var="abc=123"
+ *   multiline="multi\nline"
+ *   quoted="{\"quoted\":\"json\"}"
  * 
  * Return two tokens; strip the quotes around the second one.
  * If exactly two tokens are not found, throw an error.
@@ -403,23 +438,33 @@ strip_quotes(char *source, char quote)
 char **
 parse_keqv_line(char *line)
 {
-	int		ntok = 0;
+	int    ntok = 0;
 	char   *token;
 	char   *lstate;
-	char  **values = (char **) palloc(0);
+	char  **values = (char **) palloc(2 * sizeof(char *));
 
-	for (token = strtok_r(line, "=", &lstate); token; token = strtok_r(NULL, "=", &lstate))
+	/* find the initial key portion of the code */
+	token = strtok_r(line, "=", &lstate);
+
+	/* invalid will fall through */
+	if (token)
 	{
-		values = (char **) repalloc(values, (ntok + 1) * sizeof(char *));
+		values[ntok++] = pstrdup(token);
 
-		/* strip quotes around the second token */
-		if (ntok == 1)
-			strip_quotes(token, '"');
+		/* punt the hard work to this routine */
+		token = parse_quoted_string(&lstate);
+		if (token)
+		{
+			values[ntok++] = pstrdup(token);
 
-		values[ntok] = pstrdup(token);
-		ntok += 1;
+			/* if we have any extra chars, then it's actually a parse error */
+			if (strlen(lstate))
+			{
+				ntok++;
+			}
+		}
 	}
-
+	
 	/* line should have exactly two tokens */
 	if (ntok != 2)
 		ereport(ERROR,
