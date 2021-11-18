@@ -365,6 +365,7 @@ parse_quoted_string(char **source)
 {
 	char	   *src;
 	char	   *dst;
+	char	   *ret;
 	bool        lastSlash = false;
 	const char  quote = '"';
 
@@ -373,7 +374,7 @@ parse_quoted_string(char **source)
 	Assert(quote != '\0');
 
 	src = *source;
-	dst = palloc0(strlen(src));
+	ret = dst = palloc0(strlen(src));
 
 	if (*src && *src == quote)
 		src++;					/* skip leading quote */
@@ -418,7 +419,7 @@ parse_quoted_string(char **source)
 	*dst = '\0';
 	*source = src;
 	
-	return dst;
+	return ret;
 }
 
 /*
