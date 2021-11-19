@@ -370,16 +370,14 @@ parse_quoted_string(char **source)
 	char	   *dst;
 	char	   *ret;
 	bool        lastSlash = false;
-	const char  quote = '"';
 
 	Assert(source != NULL);
 	Assert(*source != NULL);
-	Assert(quote != '\0');
 
 	src = *source;
 	ret = dst = palloc0(strlen(src));
 
-	if (*src && *src == quote)
+	if (*src && *src == '"')
 		src++;					/* skip leading quote */
 
 	while (*src)
@@ -422,8 +420,8 @@ parse_quoted_string(char **source)
 				*dst++ = '\v';
 				src++;
 				break;
-			case quote:
-				*dst++ = quote;
+			case '"':
+				*dst++ = '"';
 				src++;
 				break;
 			case 'x':
@@ -470,7 +468,7 @@ parse_quoted_string(char **source)
 		{
 			lastSlash = (c == '\\');
 
-			if (c == quote && src[1] == '\0')
+			if (c == '"' && src[1] == '\0')
 			{
 				src++;
 				break;				/* skip trailing quote without copying */
