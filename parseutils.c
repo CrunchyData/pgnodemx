@@ -2,7 +2,7 @@
  * parseutils.c
  *
  * Functions specific to parsing various common string formats
- * 
+ *
  * Joe Conway <joe@crunchydata.com>
  *
  * This code is released under the PostgreSQL license.
@@ -444,7 +444,7 @@ parse_quoted_string(char **source)
 					unsigned int cp = (hex_value(src[1])<<12) + (hex_value(src[2])<<8) + \
 						(hex_value(src[3])<<4) + (hex_value(src[4]));
 					/* TODO: encode codepoint, add to dst */
-					
+
 					src+=5;
 				}
 				else
