@@ -2,7 +2,7 @@
  * parseutils.c
  *
  * Functions specific to parsing various common string formats
- * 
+ *
  * Joe Conway <joe@crunchydata.com>
  *
  * This code is released under the PostgreSQL license.
@@ -38,10 +38,13 @@
 #include "utils/builtins.h"
 #endif
 #include "utils/int8.h"
-
+#include "mb/pg_wchar.h"
 #include "fileutils.h"
 #include "kdapi.h"
 #include "parseutils.h"
+
+#define is_hex_digit(ch) ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
+#define hex_value(ch) ((ch >= '0' && ch <= '9') ? (ch & 0x0F) : (ch & 0x0F) + 9) /* assumes ascii */
 
 #if PG_VERSION_NUM < 90600
 #include <math.h>
@@ -355,69 +358,178 @@ parse_ss_line(char *line, int *ntok)
 }
 
 /*
- * strip_quotes (lifted and modifed from src/bin/psql/stringutils)
+ * parse_quoted_string
  *
- * Remove quotes from the string at *source.  Leading and trailing occurrences
- * of 'quote' are removed.
+ * Remove quotes and escapes from the string at **source.  Returns a new palloc() string with the contents.
  *
- * Note that the source string is overwritten in-place.
  */
-void
-strip_quotes(char *source, char quote)
+char*
+parse_quoted_string(char **source)
 {
 	char	   *src;
 	char	   *dst;
+	char	   *ret;
+	bool        lastSlash = false;
 
 	Assert(source != NULL);
-	Assert(quote != '\0');
+	Assert(*source != NULL);
 
-	src = dst = source;
+	src = *source;
+	ret = dst = palloc0(strlen(src));
 
-	if (*src && *src == quote)
+	if (*src && *src == '"')
 		src++;					/* skip leading quote */
 
 	while (*src)
 	{
 		char		c = *src;
+		pg_wchar    cp = 0;
 
-		if (c == quote && src[1] == '\0')
-			break;				/* skip trailing quote */
+		if (lastSlash)
+		{
+			switch (c) {
+			case '\\':
+				*dst++ = '\\';
+				src++;
+				break;
+			case 'a':
+				*dst++ = '\a';
+				src++;
+				break;
+			case 'b':
+				*dst++ = '\b';
+				src++;
+				break;
+			case 'f':
+				*dst++ = '\f';
+				src++;
+				break;
+			case 'n':
+				*dst++ = '\n';
+				src++;
+				break;
+			case 'r':
+				*dst++ = '\r';
+				src++;
+				break;
+			case 't':
+				*dst++ = '\t';
+				src++;
+				break;
+			case 'v':
+				*dst++ = '\v';
+				src++;
+				break;
+			case '"':
+				*dst++ = '"';
+				src++;
+				break;
+			case 'x':
+				/* next 2 chars are hex bytes */
+				if (is_hex_digit(src[1]) && is_hex_digit(src[2]))
+				{
+					*dst++ = (hex_value(src[1])<<4) + hex_value(src[2]);
+					src+=3;
+				}
+				else
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+							 errmsg("malformed \\x literal")));
+				break;
+			case 'u':
+			case 'U':
+				/* unicode code point handling */
+				for (int i = 1; i <= (c == 'u' ? 4 : 8); i++)
+				{
+					if (is_hex_digit(src[i]))
+					{
+						cp <<= 4;
+						cp += hex_value(src[i]);
+					}
+					else
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+								 errmsg("malformed unicode literal")));
+				}
+				src += (c == 'u' ? 5 : 9);
 
-		*dst++ = *src++;
+				/* append our multibyte encoded codepoint */
+				dst += pg_wchar2mb_with_len(&cp, dst, 1);
+
+				break;
+			default:			/* unrecognized escape just pass through */
+				*dst++ = '\\';
+				*dst++ = *src++;
+				break;
+			}
+			lastSlash = false;
+		}
+		else
+		{
+			lastSlash = (c == '\\');
+
+			if (c == '"' && src[1] == '\0')
+			{
+				src++;
+				break;				/* skip trailing quote without copying */
+			}
+
+			if (lastSlash)
+				src++;
+			else
+				*dst++ = *src++;
+
+		}
 	}
 
 	*dst = '\0';
+	*source = src;
+
+	return ret;
 }
 
 /*
  * Parse tokens from a "key equals quoted value" line.
  * Examples (from Kubernetes Downward API):
- * 
+ *
  *   cluster="test-cluster1"
  *   rack="rack-22"
  *   zone="us-est-coast"
- * 
+ *   var="abc=123"
+ *   multiline="multi\nline"
+ *   quoted="{\"quoted\":\"json\"}"
+ *
  * Return two tokens; strip the quotes around the second one.
  * If exactly two tokens are not found, throw an error.
  */
 char **
 parse_keqv_line(char *line)
 {
-	int		ntok = 0;
+	int    ntok = 0;
 	char   *token;
 	char   *lstate;
-	char  **values = (char **) palloc(0);
+	char  **values = (char **) palloc(2 * sizeof(char *));
 
-	for (token = strtok_r(line, "=", &lstate); token; token = strtok_r(NULL, "=", &lstate))
+	/* find the initial key portion of the code */
+	token = strtok_r(line, "=", &lstate);
+
+	/* invalid will fall through */
+	if (token)
 	{
-		values = (char **) repalloc(values, (ntok + 1) * sizeof(char *));
+		values[ntok++] = pstrdup(token);
 
-		/* strip quotes around the second token */
-		if (ntok == 1)
-			strip_quotes(token, '"');
+		/* punt the hard work to this routine */
+		token = parse_quoted_string(&lstate);
+		if (token)
+		{
+			values[ntok++] = pstrdup(token);
 
-		values[ntok] = pstrdup(token);
-		ntok += 1;
+			/* if we have any extra chars, then it's actually a parse error */
+			if (strlen(lstate))
+			{
+				ntok++;
+			}
+		}
 	}
 
 	/* line should have exactly two tokens */
