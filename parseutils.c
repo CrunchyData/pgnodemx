@@ -38,7 +38,7 @@
 #include "utils/builtins.h"
 #endif
 #include "utils/int8.h"
-
+#include "mb/pg_wchar.h"
 #include "fileutils.h"
 #include "kdapi.h"
 #include "parseutils.h"
@@ -385,7 +385,7 @@ parse_quoted_string(char **source)
 	while (*src)
 	{
 		char		c = *src;
-		unsigned int cp = 0;
+		pg_wchar    cp = 0;
 
 		if (lastSlash)
 		{
@@ -439,23 +439,9 @@ parse_quoted_string(char **source)
 							 errmsg("malformed \\x literal")));
 				break;
 			case 'u':
-				/* 4-nybble unicode code point */
-				if (is_hex_digit(src[1]) && is_hex_digit(src[2]) && is_hex_digit(src[3]) && is_hex_digit(src[4]))
-				{
-					cp = (hex_value(src[1])<<12) + (hex_value(src[2])<<8) + \
-						(hex_value(src[3])<<4) + (hex_value(src[4]));
-					/* TODO: encode codepoint, add to dst */
-
-					src+=5;
-				}
-				else
-					ereport(ERROR,
-							(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
-							 errmsg("malformed \\u literal")));
-				break;
 			case 'U':
-				/* 8-nybble unicode code point */
-				for (int i = 1; i <= 8; i++)
+				/* unicode code point handling */
+				for (int i = 1; i <= (c == 'u' ? 4 : 8); i++)
 				{
 					if (is_hex_digit(src[i]))
 					{
@@ -465,11 +451,13 @@ parse_quoted_string(char **source)
 					else
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
-								 errmsg("malformed \\U literal")));
+								 errmsg("malformed unicode literal")));
 				}
-				src+=9;
+				src += (c == 'u' ? 5 : 9);
 
-				/* TODO: encode codepoint, add to dst */
+				/* append our multibyte encoded codepoint */
+				dst += pg_wchar2mb_with_len(&cp, dst, 1);
+
 				break;
 			default:			/* unrecognized escape just pass through */
 				*dst++ = '\\';
