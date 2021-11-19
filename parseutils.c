@@ -43,6 +43,9 @@
 #include "kdapi.h"
 #include "parseutils.h"
 
+#define is_hex_digit(ch) ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
+#define hex_value(ch) ((ch >= '0' && ch <= '9') ? (ch & 0x0F) : (ch & 0x0F) + 9) /* assumes ascii */
+
 #if PG_VERSION_NUM < 90600
 #include <math.h>
 
@@ -56,9 +59,6 @@ do { \
 		throw_error; \
 	} \
 } while (0)
-
-#define is_hex_digit(ch) ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
-#define hex_value(ch) ((ch >= '0' && ch <= '9') ? (ch & 0x0F) : (ch & 0x0F) + 9) /* assumes ascii */
 
 /*
  * float8in_internal_opt_error - guts of float8in()
@@ -385,6 +385,7 @@ parse_quoted_string(char **source)
 	while (*src)
 	{
 		char		c = *src;
+		unsigned int cp = 0;
 
 		if (lastSlash)
 		{
@@ -435,13 +436,13 @@ parse_quoted_string(char **source)
 				else
 					ereport(ERROR,
 							(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
-							 errmsg("malformed \x literal")));
+							 errmsg("malformed \\x literal")));
 				break;
 			case 'u':
 				/* 4-nybble unicode code point */
 				if (is_hex_digit(src[1]) && is_hex_digit(src[2]) && is_hex_digit(src[3]) && is_hex_digit(src[4]))
 				{
-					unsigned int cp = (hex_value(src[1])<<12) + (hex_value(src[2])<<8) + \
+					cp = (hex_value(src[1])<<12) + (hex_value(src[2])<<8) + \
 						(hex_value(src[3])<<4) + (hex_value(src[4]));
 					/* TODO: encode codepoint, add to dst */
 
@@ -450,12 +451,10 @@ parse_quoted_string(char **source)
 				else
 					ereport(ERROR,
 							(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
-							 errmsg("malformed \u literal")));
+							 errmsg("malformed \\u literal")));
 				break;
 			case 'U':
 				/* 8-nybble unicode code point */
-				unsigned int cp = 0;
-
 				for (int i = 1; i <= 8; i++)
 				{
 					if (is_hex_digit(src[i]))
@@ -466,7 +465,7 @@ parse_quoted_string(char **source)
 					else
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
-								 errmsg("malformed \U literal")));
+								 errmsg("malformed \\U literal")));
 				}
 				src+=9;
 
