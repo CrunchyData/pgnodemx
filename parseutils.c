@@ -57,6 +57,9 @@ do { \
 	} \
 } while (0)
 
+#define is_hex_digit(ch) ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
+#define hex_value(ch) ((ch >= '0' && ch <= '9') ? (ch & 0x0F) : (ch & 0x0F) + 9) /* assumes ascii */
+
 /*
  * float8in_internal_opt_error - guts of float8in()
  *
@@ -386,25 +389,93 @@ parse_quoted_string(char **source)
 		if (lastSlash)
 		{
 			switch (c) {
-				case '\\':
-					*dst++ = '\\';
-					src++;
-					break;
-				case 'n':
-					*dst++ = '\n';
-					src++;
-					break;
-				case 't':
-					*dst++ = '\t';
-					src++;
-					break;
-				case quote:
-					*dst++ = quote;
-					src++;
-					break;
-				default:			/* unrecognized escape just pass through; XXX: add back in the slash? */
-					*dst++ = *src++;
-					break;
+			case '\\':
+				*dst++ = '\\';
+				src++;
+				break;
+			case 'a':
+				*dst++ = '\a';
+				src++;
+				break;
+			case 'b':
+				*dst++ = '\b';
+				src++;
+				break;
+			case 'f':
+				*dst++ = '\f';
+				src++;
+				break;
+			case 'n':
+				*dst++ = '\n';
+				src++;
+				break;
+			case 'r':
+				*dst++ = '\r';
+				src++;
+				break;
+			case 't':
+				*dst++ = '\t';
+				src++;
+				break;
+			case 'v':
+				*dst++ = '\v';
+				src++;
+				break;
+			case quote:
+				*dst++ = quote;
+				src++;
+				break;
+			case 'x':
+				/* next 2 chars are hex bytes */
+				if (is_hex_digit(src[1]) && is_hex_digit(src[2]))
+				{
+					*dst++ = (hex_value(src[1])<<4) + hex_value(src[2]);
+					src+=3;
+				}
+				else
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+							 errmsg("malformed \x literal")));
+				break;
+			case 'u':
+				/* 4-nybble unicode code point */
+				if (is_hex_digit(src[1]) && is_hex_digit(src[2]) && is_hex_digit(src[3]) && is_hex_digit(src[4]))
+				{
+					unsigned int cp = (hex_value(src[1])<<12) + (hex_value(src[2])<<8) + \
+						(hex_value(src[3])<<4) + (hex_value(src[4]));
+					/* TODO: encode codepoint, add to dst */
+					
+					src+=5;
+				}
+				else
+					ereport(ERROR,
+							(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+							 errmsg("malformed \u literal")));
+				break;
+			case 'U':
+				/* 8-nybble unicode code point */
+				unsigned int cp = 0;
+
+				for (int i = 1; i <= 8; i++)
+				{
+					if (is_hex_digit(src[i]))
+					{
+						cp <<= 4;
+						cp += hex_value(src[i]);
+					}
+					else
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+								 errmsg("malformed \U literal")));
+				}
+				src+=9;
+
+				/* TODO: encode codepoint, add to dst */
+				break;
+			default:			/* unrecognized escape just pass through */
+				*dst++ = '\\';
+				*dst++ = *src++;
+				break;
 			}
 			lastSlash = false;
 		}
