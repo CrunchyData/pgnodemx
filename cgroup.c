@@ -318,6 +318,23 @@ set_cgmode(void)
 
 	if (buf.f_type == CGROUP2_SUPER_MAGIC)					/* cgroup v2 */
 	{
+		char   *ftr = PROC_CGROUP_FILE;
+		int		nlines;
+
+		/*
+		 * From what I have read, this should not ever happen.
+		 * However it was reported from the field, so apparently
+		 * it *can* happen.
+		 * 
+		 * In any case, it seems to indicate hybrid mode is in effect.
+		 */
+		read_nlsv(ftr, &nlines);
+		if (nlines != 1)
+		{
+			cgmode = MemoryContextStrdup(TopMemoryContext, CGROUP_HYBRID);
+			return false;
+		}
+
 		cgmode = MemoryContextStrdup(TopMemoryContext, CGROUP_V2);
 		return true;
 	}
