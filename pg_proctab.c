@@ -16,20 +16,54 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/param.h>
-#include <executor/spi.h>
+#include "genutils.h"
+#include "parseutils.h"
 #include "pg_proctab.h"
 
 #define FULLCOMM_LEN 1024
+char *get_fullcmd(char *pid);
+char *get_rss(char *rss);
+char ***read_kv_file( char *filename, int *nlines );
 
-#if PG_VERSION_NUM < 90200
-#define GET_PIDS \
-		"SELECT procpid " \
-		"FROM pg_stat_activity"
-#else
-#define GET_PIDS \
-		"SELECT pid " \
-		"FROM pg_stat_activity"
-#endif /* PG_VERSION_NUM */
+// from pg_proctab.c
+#define NUM_COLS 39
+					/* pid INTEGER, comm TEXT, fullcomm TEXT, state TEXT */
+Oid proctab_sig[] = {INT4OID, TEXTOID, TEXTOID, TEXTOID, 
+					/* 4 ppid INTEGER, pgrp INTEGER, session INTEGER, tty_nr INTEGER */
+					INT4OID, INT4OID, INT4OID, INT4OID,
+					/* 8 tpgid INTEGER, flags INTEGER, minflt BIGINT, cminflt BIGINT */
+					INT4OID, INT4OID, INT8OID, INT8OID,
+					/* 12 majflt BIGINT, cmajflt BIGINT, utime BIGINT, stime BIGINT */
+					INT8OID, INT8OID, INT8OID, INT8OID,
+					/* 16 cutime BIGINT, cstime BIGINT, priority BIGINT, nice BIGINT */
+					INT8OID, INT8OID, INT8OID, INT8OID,
+					/* 20 num_threads BIGINT, itrealvalue BIGINT, starttime NUMERIC, vsize BIGINT */
+					INT8OID, INT8OID, NUMERICOID, INT8OID,
+					/* 24 rss NUMERIC, exit_signal INTEGER, processor INTEGER, rt_priority BIGINT */
+					NUMERICOID, INT4OID, INT4OID, INT8OID,
+					/* 28 policy BIGINT, delayacct_blkio_ticks NUMERIC, uid INTEGER, username VARCHAR */
+					INT8OID, NUMERICOID, INT4OID, TEXTOID,
+					/* 32 rchar BIGINT, wchar BIGINT, syscr BIGINT, syscw BIGINT */
+					INT8OID, INT8OID, INT8OID, INT8OID,
+					/* 36 reads BIGINT, writes BIGINT,cwrites BIGINT */
+					INT8OID, INT8OID, INT8OID
+					};
+/*
+0 11750 (postmaster) S 1  
+4 11750 11750 0 -1 
+8 4210944 3948 13103 0
+12 0 1 2 3 
+16 5 20 0 1 
+20 0 8242695 296566784 6236 
+24 18446744073709551615 1305 18446744073709551615 4194304 
+28 12252472 140728896963568 0 0 0 
+32 0 4194304 24147974 536871425
+36 0 0 0 17
+40 1 0 0 0
+44 0 0 14352560 14546418 
+41533440 140728896970319 140728896970375 140728896970375 140728896970715 
+0
+*/
 
 #define GET_VALUE(value) \
 		p = strchr(p, ':'); \
@@ -84,170 +118,161 @@ PG_FUNCTION_INFO_V1(pg_diskusage);
 
 Datum pg_proctab(PG_FUNCTION_ARGS)
 {
-	FuncCallContext *funcctx;
-	int call_cntr;
-	int max_calls;
-	TupleDesc tupdesc;
-	AttInMetadata *attinmeta;
+	char buffer[256];
+	char **child_pids;
+	int  ntok;
+	int  ncol = 42;
+	pid_t ppid;
+	int nlines;
+	char ***iostat;
+
+	char  ***values = (char ***) palloc(0);
 
 	elog(DEBUG5, "pg_proctab: Entering stored function.");
 
-	/* stuff done only on the first call of the function */
-	if (SRF_IS_FIRSTCALL())
+	/* Get pid of all client connections. */
+
+	ppid = getppid();
+	snprintf(buffer, sizeof(buffer) - 1, "/proc/%d/task/%d/children", ppid, ppid);
+	child_pids = parse_space_sep_val_file(buffer, &ntok);
+
+	if (ntok > 0) 
 	{
-		MemoryContext oldcontext;
-
-		int ret;
-
-		/* create a function context for cross-call persistence */
-		funcctx = SRF_FIRSTCALL_INIT();
-
-		/* switch to memory context appropriate for multiple function calls */
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-
-		/* Build a tuple descriptor for our result type */
-		if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("function returning record called in context "
-							"that cannot accept type record")));
-
-		/*
-		 * generate attribute metadata needed later to produce tuples from raw
-		 * C strings
-		 */
-		attinmeta = TupleDescGetAttInMetadata(tupdesc);
-		funcctx->attinmeta = attinmeta;
-
-		/* Get pid of all client connections. */
-
-		SPI_connect();
-		elog(DEBUG5, "pg_proctab: SPI connected.");
-
-		ret = SPI_exec(GET_PIDS, 0);
-		if (ret == SPI_OK_SELECT)
+		int j;
+		int nchildren = ntok;
+		/* ntok is the number of children pids we will be getting stats for */
+		values = (char ***) repalloc(values, nchildren * sizeof(char **));
+		
+		for (j = 0; j < nchildren; ++j)
 		{
-			int32 *ppid;
+			int	 ntok;
+			char **toks;
+			int	 k,l;
+			
+			/* read stats for each child pid */
+			snprintf(buffer, sizeof(buffer) - 1, "/proc/%s/stat", child_pids[j]);
 
-			int i;
-			TupleDesc tupdesc;
-			SPITupleTable *tuptable;
-			HeapTuple tuple;
+			toks = parse_space_sep_val_file(buffer, &ntok);
 
-			/* total number of tuples to be returned */
-			funcctx->max_calls = SPI_processed;
+			if (ntok != 52)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: expected %d tokens, got %d in flat keyed file %s, line %d",
+							   ncol, ntok, buffer, j + 1)));
 
-#if (PG_VERSION_NUM >= 90600)
-			elog(DEBUG5, "pg_proctab: %lu process(es) in pg_stat_activity.",
-					funcctx->max_calls);
-#else
-			elog(DEBUG5, "pg_proctab: %d process(es) in pg_stat_activity.",
-					funcctx->max_calls);
-#endif
-			funcctx->user_fctx = MemoryContextAlloc(
-					funcctx->multi_call_memory_ctx, sizeof(int32) *
-					funcctx->max_calls);
-			ppid = (int32 *) funcctx->user_fctx;
-
-			tupdesc = SPI_tuptable->tupdesc;
-			tuptable = SPI_tuptable;
-
-			for (i = 0; i < funcctx->max_calls; i++)
+			values[j] = (char **) palloc(NUM_COLS * sizeof(char *));
+			
+			for (k = 0, l = 0; k < ncol; ++k) 
 			{
-				tuple = tuptable->vals[i];
-				ppid[i] = atoi(SPI_getvalue(tuple, tupdesc, 1));
+				/* need to get long version of command line here */
+				if ( k == 2 ) 
+				{
+					values[j][l++] = get_fullcmd(child_pids[j]);
+					/* need to add status */
+					values[j][l++] = pstrdup(toks[k]);
+				}
+				/* rss in pages */
+				else if ( k == 24 )
+					values[j][l++] = pstrdup( get_rss(toks[k]) );
+				else if ( k > 24 && k <= 37 )
+					/* skip these values */
+					continue;
+				else 	
+				{
+					elog(DEBUG1, "values[%d] == %s ",l, toks[k]);
+					values[j][l++] = pstrdup(toks[k]);
+				}
 			}
+			values[j][l++] = pstrdup("1234"); // uid
+			values[j][l++] = pstrdup("postgres"); // username
+
+			snprintf(buffer, sizeof(buffer) - 1, "%s/%s/io", PROCFS, child_pids[j]);
+			
+			iostat = read_kv_file(buffer, &nlines);
+
+			if ( nlines != 7)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: expected %d tokens, got %d in keyed file %s, pid %d",
+							   7, nlines, buffer, j + 1)));
+
+			for (int i = 0; i < 7 ; i++ )
+			{
+				values[j][l++] = pstrdup(iostat[i][1]);
+			}
+
 		}
-		else
-		{
-			/* total number of tuples to be returned */
-			funcctx->max_calls = 0;
-			elog(WARNING, "unable to get procpids from pg_stat_activity");
-		}
 
-		SPI_finish();
-
-		MemoryContextSwitchTo(oldcontext);
+		return form_srf(fcinfo, values, nchildren, NUM_COLS, proctab_sig);
 	}
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pgnodemx: no lines in flat keyed file: %s ", buffer)));
 
-	/* stuff done on every call of the function */
-	funcctx = SRF_PERCALL_SETUP();
-
-	call_cntr = funcctx->call_cntr;
-	max_calls = funcctx->max_calls;
-	attinmeta = funcctx->attinmeta;
-
-	if (call_cntr < max_calls) /* do when there is more left to send */
-	{
-		HeapTuple tuple;
-		Datum result;
-
-		char **values = NULL;
-
-		values = (char **) palloc(39 * sizeof(char *));
-		values[i_pid] = (char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-		values[i_comm] = (char *) palloc(1024 * sizeof(char));
-		values[i_state] = (char *) palloc(2 * sizeof(char));
-		values[i_ppid] = (char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-		values[i_pgrp] = (char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-		values[i_session] = (char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-		values[i_tty_nr] = (char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-		values[i_tpgid] = (char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-		values[i_flags] = (char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-		values[i_minflt] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_cminflt] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_majflt] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_cmajflt] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-
-		/* FIXME: Need to figure out correct length to hold a C double type. */
-		values[i_utime] = (char *) palloc(32 * sizeof(char));
-		values[i_stime] = (char *) palloc(32 * sizeof(char));
-
-		values[i_cutime] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_cstime] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_priority] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_nice] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_num_threads] =
-				(char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_itrealvalue] =
-				(char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_starttime] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_vsize] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_rss] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_exit_signal] =
-				(char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-		values[i_processor] = (char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-		values[i_rt_priority] =
-				(char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_policy] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_delayacct_blkio_ticks] =
-				(char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_uid] = (char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-		values[i_rchar] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_wchar] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_syscr] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_syscw] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_reads] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_writes] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_cwrites] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-
-		if (get_proctab(funcctx, values) == 0)
-			SRF_RETURN_DONE(funcctx);
-
-		/* build a tuple */
-		tuple = BuildTupleFromCStrings(attinmeta, values);
-
-		/* make the tuple into a datum */
-		result = HeapTupleGetDatum(tuple);
-
-		SRF_RETURN_NEXT(funcctx, result);
-	}
-	else /* do when there is no more left */
-	{
-		SRF_RETURN_DONE(funcctx);
-	}
+	/* never reached */
+	return (Datum) 0;
 }
 
+/*
+	returns full command line of pid otherwise NULL
+*/
+char *get_fullcmd(char *pid)
+{
+	char buffer[256];
+	int fd = -1;
+	int len;
+
+	/* Get the full command line information. */
+	snprintf(buffer, sizeof(buffer) - 1, "%s/%s/cmdline", PROCFS, pid);
+	fd = open(buffer, O_RDONLY);
+	if (fd == -1)
+	{
+		elog(ERROR, "'%s' not found", buffer);
+		return NULL;
+	}
+	else
+	{
+		char *full_cmd = (char *) palloc((FULLCOMM_LEN + 1) * sizeof(char));
+		len = read(fd, full_cmd, FULLCOMM_LEN);
+		close(fd);
+		full_cmd[len] = '\0';
+		return full_cmd;
+	}
+	return NULL;
+}
+
+char *get_rss(char *rss)
+{
+	char *rss_str = palloc(256 * sizeof(char));
+	snprintf(rss_str, (256 * sizeof(char)) -1, "%lld", pagetok(atoll(rss)) );
+	return rss_str;
+}
+
+char ***read_kv_file( char *fname, int *nlines )
+{
+	char **lines = read_nlsv(fname, nlines);	
+	if (nlines > 0)
+	{
+		char	 ***values;
+		int		 nrow = *nlines;
+		int		 i;
+
+		values = (char ***) palloc(nrow * sizeof(char **));
+		for (i = 0; i < nrow; ++i)
+		{
+			int	ntok;
+
+			values[i] = parse_ss_line(lines[i], &ntok);
+		
+		}
+		return values;
+	}
+	return NULL;
+}
+
+
+
+#ifdef XXX
 int
 get_proctab(FuncCallContext *funcctx, char **values)
 {
@@ -261,6 +286,9 @@ get_proctab(FuncCallContext *funcctx, char **values)
 	int32 pid;
 	int length;
 
+	int			nlines;
+	char	  **lines;
+	
 	struct stat stat_struct;
 
 	struct statfs sb;
@@ -269,6 +297,7 @@ get_proctab(FuncCallContext *funcctx, char **values)
 	char buffer[4096];
 	char *p;
 	char *q;
+	char ***values;
 
 	/* Check if /proc is mounted. */
 	if (statfs(PROCFS, &sb) < 0 || sb.f_type != PROC_SUPER_MAGIC)
@@ -333,121 +362,70 @@ get_proctab(FuncCallContext *funcctx, char **values)
 
 	/* Get the process table information for the pid. */
 	snprintf(buffer, sizeof(buffer) - 1, "%s/%d/stat", PROCFS, pid);
-	fd = open(buffer, O_RDONLY);
-	if (fd == -1)
+	lines = read_nlsv(buffer, &nlines);
+	if (nlines > 0)
 	{
-		elog(ERROR, "%d/stat not found", pid);
-		return 0;
+		int		j;
+		char	**toks;
+		int 	nrow;
+
+		nrow = nlines;
+		values = (char ***) repalloc(values, 39 * sizeof(char **));
+		for (j = 0; j < nrow; ++j)
+		{
+			int			ntok;
+			int			k;
+
+			values[j] = (char **) palloc(ncol * sizeof(char *));
+
+			toks = parse_ss_line(lines[j], &ntok);
+
+			for (k = 0; k < ncol; ++k)
+				switch (k) {
+					case i_pid:
+					case i_comm:
+					case i_state:
+					case i_pid:
+					case i_ppid:
+					case i_pgrp:
+					case i_session:
+					case i_tty_nr:
+					case i_tpgid:
+					case i_flags:
+					case i_minflt:
+					case i_cminflt:
+					case i_majflt:
+					case i_cmajflt:
+					case i_utime:
+					case i_stime:
+					case i_cutime:
+					case i_cstime:
+					case i_priority:
+					case i_num_threads:
+					case i_itrealvalue:
+					case i_starttime:
+					case i_vsize:
+					case i_exit_signal:
+					case i_processor:
+					case i_rt_priority:
+					case i_policy:
+					case i_delayacct_blkio_ticks:
+						values[j][k] = pstrdup(toks[k]);
+					case i_rss:
+						/*
+						 Convert rss into bytes. 
+						snprintf(values[i_rss], sizeof(values[i_rss]) -1, "%lld",
+						pagetok(atoll(values[i_rss])));
+						*/
+				} 
+		}
 	}
-	len = read(fd, buffer, sizeof(buffer) - 1);
-	close(fd);
-	buffer[len] = '\0';
-	elog(DEBUG5, "pg_proctab: %s", buffer);
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: no data in file: %s ", buffer)));
 
-	p = buffer;
-
-	/* pid */
-	GET_NEXT_VALUE(p, q, values[i_pid], length, "pid not found", ' ');
-
-	/* comm */
-	++p;
-	if ((q = strchr(p, ')')) == NULL)
-	{
-		elog(ERROR, "pg_proctab: comm not found");
-		return 0;
-	}
-	length = q - p;
-	strncpy(values[i_comm], p, length);
-	values[i_comm][length] = '\0';
-	p = q + 2;
-
-	/* state */
-	values[i_state][0] = *p;
-	values[i_state][1] = '\0';
-	p = p + 2;
-
-	/* ppid */
-	GET_NEXT_VALUE(p, q, values[i_ppid], length, "ppid not found", ' ');
-
-	/* pgrp */
-	GET_NEXT_VALUE(p, q, values[i_pgrp], length, "pgrp not found", ' ');
-
-	/* session */
-	GET_NEXT_VALUE(p, q, values[i_session], length, "session not found", ' ');
-
-	/* tty_nr */
-	GET_NEXT_VALUE(p, q, values[i_tty_nr], length, "tty_nr not found", ' ');
-
-	/* tpgid */
-	GET_NEXT_VALUE(p, q, values[i_tpgid], length, "tpgid not found", ' ');
-
-	/* flags */
-	GET_NEXT_VALUE(p, q, values[i_flags], length, "flags not found", ' ');
-
-	/* minflt */
-	GET_NEXT_VALUE(p, q, values[i_minflt], length, "minflt not found", ' ');
-
-	/* cminflt */
-	GET_NEXT_VALUE(p, q, values[i_cminflt], length, "cminflt not found", ' ');
-
-	/* majflt */
-	GET_NEXT_VALUE(p, q, values[i_majflt], length, "majflt not found", ' ');
-
-	/* cmajflt */
-	GET_NEXT_VALUE(p, q, values[i_cmajflt], length, "cmajflt not found", ' ');
-
-		/* utime */
-	GET_NEXT_VALUE(p, q, values[i_utime], length, "utime not found", ' ');
-
-	/* stime */
-	GET_NEXT_VALUE(p, q, values[i_stime], length, "stime not found", ' ');
-
-	/* cutime */
-	GET_NEXT_VALUE(p, q, values[i_cutime], length, "cutime not found", ' ');
-
-	/* cstime */
-	GET_NEXT_VALUE(p, q, values[i_cstime], length, "cstime not found", ' ');
-
-	/* priority */
-	GET_NEXT_VALUE(p, q, values[i_priority], length, "priority not found", ' ');
-
-	/* nice */
-	GET_NEXT_VALUE(p, q, values[i_nice], length, "nice not found", ' ');
-
-	/* num_threads */
-	GET_NEXT_VALUE(p, q, values[i_num_threads], length,
-				"num_threads not found", ' ');
-
-	/* itrealvalue */
-	GET_NEXT_VALUE(p, q, values[i_itrealvalue], length,
-			"itrealvalue not found", ' ');
-
-	/* starttime */
-	GET_NEXT_VALUE(p, q, values[i_starttime], length, "starttime not found",
-			' ');
-
-	/* vsize */
-	GET_NEXT_VALUE(p, q, values[i_vsize], length, "vsize not found", ' ');
-
-	/* rss */
-	GET_NEXT_VALUE(p, q, values[i_rss], length, "rss not found", ' ');
-	/* Convert rss into bytes. */
-	snprintf(values[i_rss], sizeof(values[i_rss]) -1, "%lld",
-			pagetok(atoll(values[i_rss])));
-
-	SKIP_TOKEN(p);			/* skip rlim */
-	SKIP_TOKEN(p);			/* skip startcode */
-	SKIP_TOKEN(p);			/* skip endcode */
-	SKIP_TOKEN(p);			/* skip startstack */
-	SKIP_TOKEN(p);			/* skip kstkesp */
-	SKIP_TOKEN(p);			/* skip kstkeip */
-	SKIP_TOKEN(p);			/* skip signal (obsolete) */
-	SKIP_TOKEN(p);			/* skip blocked (obsolete) */
-	SKIP_TOKEN(p);			/* skip sigignore (obsolete) */
-	SKIP_TOKEN(p);			/* skip sigcatch (obsolete) */
-	SKIP_TOKEN(p);			/* skip wchan */
-	SKIP_TOKEN(p);			/* skip nswap (place holder) */
-	SKIP_TOKEN(p);			/* skip cnswap (place holder) */
+	return form_srf(fcinfo, values, nrow, ncol, bigint_bigint_text_11_bigint_sig);
 
 	/* exit_signal */
 	GET_NEXT_VALUE(p, q, values[i_exit_signal], length,
@@ -587,6 +565,8 @@ get_proctab(FuncCallContext *funcctx, char **values)
 
 	return 1;
 }
+
+#endif
 
 Datum pg_cputime(PG_FUNCTION_ARGS)
 {
@@ -865,6 +845,7 @@ get_loadavg(char **values)
 		GET_NEXT_VALUE(p, q, values[i_last_pid], length,
 				"last_pid not found", ' ');
 	}
+
 	elog(DEBUG5, "pg_loadavg: [%d] load1 = %s", (int) i_load1,
 			values[i_load1]);
 	elog(DEBUG5, "pg_loadavg: [%d] load5 = %s", (int) i_load5,
