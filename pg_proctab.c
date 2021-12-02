@@ -164,15 +164,36 @@ Datum pg_proctab(PG_FUNCTION_ARGS)
 			
 			for (k = 0, l = 0; k < ncol; ++k) 
 			{
-				/* need to get long version of command line here */
-				if ( k == 2 ) 
+				if ( k == 1 )
 				{
+					/* strip () from the cmd */
+					int len = strlen(toks[k]);
+					char *cmd = palloc( len * sizeof (char) );
+					char *dest = cmd;
+					char *src = toks[k];
+					while( *src != '\0')
+					{
+						if (*src == '(') 
+						{	src++;
+							continue;
+						}
+						else if (*src == ')')
+						{	*cmd = '\0';
+							break;
+						}
+						*cmd++ = *src++;	
+					}
+					values[j][l++] = dest;
+				}
+				else if ( k == 2 ) 
+				{
+					/* need to get long version of command line here */
 					values[j][l++] = get_fullcmd(child_pids[j]);
 					/* need to add status */
 					values[j][l++] = pstrdup(toks[k]);
 				}
-				/* rss in pages */
 				else if ( k == 24 )
+					/* rss in pages */
 					values[j][l++] = pstrdup( get_rss(toks[k]) );
 				else if ( k > 24 && k <= 37 )
 					/* skip these values */
