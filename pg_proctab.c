@@ -68,22 +68,7 @@ Oid proctab_sig[] = {INT4OID, TEXTOID, TEXTOID, TEXTOID,
 */
 
 Oid cpu_time_sig[] = { INT8OID, INT8OID, INT8OID, INT8OID, INT8OID };
-Oid load_load_avg_sig[] = { FLOAT4OID, FLOAT4OID, FLOAT4OID, INT4OID };
-
-
-#define GET_VALUE(value) \
-		p = strchr(p, ':'); \
-		++p; \
-		++p; \
-		q = strchr(p, '\n'); \
-		len = q - p; \
-		if (len >= BIGINT_LEN) \
-		{ \
-			elog(ERROR, "value is larger than the buffer: %d\n", __LINE__); \
-			return 0; \
-		} \
-		strncpy(value, p, len); \
-		value[len] = '\0';
+Oid load_avg_sig[] = { FLOAT8OID, FLOAT8OID, FLOAT8OID, INT4OID };
 
 #define pagetok(x)	((x) * sysconf(_SC_PAGESIZE) >> 10)
 
@@ -334,7 +319,8 @@ Datum pg_cputime(PG_FUNCTION_ARGS)
 	if (statfs(PROCFS, &sb) < 0 || sb.f_type != PROC_SUPER_MAGIC)
 	{
 		elog(ERROR, "proc filesystem not mounted on " PROCFS "\n");
-		return 0;
+		/* never reached */
+		return (Datum)0;
 	}
 
 	snprintf(buffer, sizeof(buffer) - 1, "%s/stat", PROCFS);
@@ -346,19 +332,10 @@ Datum pg_cputime(PG_FUNCTION_ARGS)
 
 	values = (char **) palloc(5 * sizeof(char *));
 
-	/* user */
 	values[i_user] = pstrdup(tokens[1]);
-
-	/* nice */
 	values[i_nice_c] = pstrdup(tokens[2]);
-
-	/* system */
 	values[i_system] = pstrdup(tokens[3]); 
-
-	/* idle */
 	values[i_idle] = pstrdup(tokens[4]);
-
-	/* iowait */
 	values[i_iowait] = pstrdup(tokens[5]);
 
 	elog(DEBUG5, "pg_cputime: [%d] user = %s", (int) i_user, values[i_user]);
@@ -375,142 +352,40 @@ Datum pg_cputime(PG_FUNCTION_ARGS)
 
 Datum pg_loadavg(PG_FUNCTION_ARGS)
 {
-	FuncCallContext *funcctx;
-	int call_cntr;
-	int max_calls;
-	TupleDesc tupdesc;
-	AttInMetadata *attinmeta;
+	char **values = NULL;
+	struct statfs sb;
+	char buffer[4096];
+	char **lines;
+	int nlines;
+	char **tokens;
+	int ntok;
 
 	elog(DEBUG5, "pg_loadavg: Entering stored function.");
 
-	/* stuff done only on the first call of the function */
-	if (SRF_IS_FIRSTCALL())
-	{
-		MemoryContext oldcontext;
-
-		/* create a function context for cross-call persistence */
-		funcctx = SRF_FIRSTCALL_INIT();
-
-		/* switch to memory context appropriate for multiple function calls */
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-
-		/* Build a tuple descriptor for our result type */
-		if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("function returning record called in context "
-							"that cannot accept type record")));
-
-		/*
-		 * generate attribute metadata needed later to produce tuples from raw
-		 * C strings
-		 */
-		attinmeta = TupleDescGetAttInMetadata(tupdesc);
-		funcctx->attinmeta = attinmeta;
-
-		funcctx->max_calls = 1;
-
-		MemoryContextSwitchTo(oldcontext);
-	}
-
-	/* stuff done on every call of the function */
-	funcctx = SRF_PERCALL_SETUP();
-
-	call_cntr = funcctx->call_cntr;
-	max_calls = funcctx->max_calls;
-	attinmeta = funcctx->attinmeta;
-
-	if (call_cntr < max_calls) /* do when there is more left to send */
-	{
-		HeapTuple tuple;
-		Datum result;
-
-		char **values = NULL;
-
-		values = (char **) palloc(4 * sizeof(char *));
-		values[i_load1] = (char *) palloc((FLOAT_LEN + 1) * sizeof(char));
-		values[i_load5] = (char *) palloc((FLOAT_LEN + 1) * sizeof(char));
-		values[i_load15] = (char *) palloc((FLOAT_LEN + 1) * sizeof(char));
-		values[i_last_pid] = (char *) palloc((INTEGER_LEN + 1) * sizeof(char));
-
-		if (get_loadavg(values) == 0)
-			SRF_RETURN_DONE(funcctx);
-
-		/* build a tuple */
-		tuple = BuildTupleFromCStrings(attinmeta, values);
-
-		/* make the tuple into a datum */
-		result = HeapTupleGetDatum(tuple);
-
-		SRF_RETURN_NEXT(funcctx, result);
-	}
-	else /* do when there is no more left */
-	{
-		SRF_RETURN_DONE(funcctx);
-	}
-}
-
-int
-get_loadavg(char **values)
-{
-	int length;
-
-	struct statfs sb;
-	int fd;
-	int len;
-	char buffer[4096];
-	char *p;
-	char *q;
-
+	values = (char **) palloc(4 * sizeof(char *));
+	
 	/* Check if /proc is mounted. */
 	if (statfs(PROCFS, &sb) < 0 || sb.f_type != PROC_SUPER_MAGIC)
 	{
 		elog(ERROR, "proc filesystem not mounted on " PROCFS "\n");
-		return 0;
+		/* never reached */
+		return (Datum)0;
 	}
 
 	snprintf(buffer, sizeof(buffer) - 1, "%s/loadavg", PROCFS);
-	fd = open(buffer, O_RDONLY);
-	if (fd == -1)
-	{
-		elog(ERROR, "'%s' not found", buffer);
-		return 0;
-	}
-	len = read(fd, buffer, sizeof(buffer) - 1);
-	close(fd);
-	buffer[len] = '\0';
+	lines = read_nlsv(buffer, &nlines);
+
 	elog(DEBUG5, "pg_loadavg: %s", buffer);
 
-	p = buffer;
+	tokens = parse_ss_line(lines[0], &ntok);
 
-	/* load1 */
-	GET_NEXT_VALUE(p, q, values[i_load1], length, "load1 not found", ' ');
+	values = (char **) palloc(4 * sizeof(char *));
 
-	/* load5 */
-	GET_NEXT_VALUE(p, q, values[i_load5], length, "load5 not found", ' ');
-
-	/* load15 */
-	GET_NEXT_VALUE(p, q, values[i_load15], length, "load15 not found", ' ');
-
-	SKIP_TOKEN(p);			/* skip running/tasks */
-
-	/* last_pid */
-	/*
-	 * It appears sometimes this is the last item in /proc/PID/stat and
-	 * sometimes it's not, depending on the version of the kernel and
-	 * possibly the architecture.  So first test if it is the last item
-	 * before determining how to deliminate it.
-	 */
-	if (strchr(p, ' ') == NULL)
-	{
-		GET_NEXT_VALUE(p, q, values[i_last_pid], length,
-				"last_pid not found", '\n');
-	}
-	else
-	{
-		GET_NEXT_VALUE(p, q, values[i_last_pid], length,
-				"last_pid not found", ' ');
-	}
+	values[i_load1] = pstrdup(tokens[0]);
+	values[i_load5] = pstrdup(tokens[1]);
+	values[i_load15] = pstrdup(tokens[2]); 
+	/* skip running/tasks */
+	values[i_last_pid] = pstrdup(tokens[4]);
 
 	elog(DEBUG5, "pg_loadavg: [%d] load1 = %s", (int) i_load1,
 			values[i_load1]);
@@ -521,7 +396,7 @@ get_loadavg(char **values)
 	elog(DEBUG5, "pg_loadavg: [%d] last_pid = %s", (int) i_last_pid,
 			values[i_last_pid]);
 
-	return 1;
-}
+	return form_srf(fcinfo, &values, 1, 4, load_avg_sig);
 
+}
 

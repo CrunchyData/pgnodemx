@@ -15,26 +15,4 @@
 
 #define PROCFS "/proc"
 
-#define GET_NEXT_VALUE(p, q, value, length, msg, delim) \
-        if ((q = strchr(p, delim)) == NULL) \
-        { \
-            elog(ERROR, msg); \
-            return 0; \
-        } \
-        length = q - p; \
-        strncpy(value, p, length); \
-        value[length] = '\0'; \
-        p = q + 1;
-
-#define SKIP_TOKEN(p) \
-		/* Skipping leading white space. */ \
-		while (isspace(*p)) \
-			p++; \
-		/* Skip token. */ \
-		while (*p && !isspace(*p)) \
-			p++; \
-		/* Skipping trailing white space. */ \
-		while (isspace(*p)) \
-			p++;
-
 #endif /* _PG_PROCTAB_H_ */
