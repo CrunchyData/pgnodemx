@@ -49,6 +49,7 @@ Oid proctab_sig[] = {INT4OID, TEXTOID, TEXTOID, TEXTOID,
 					/* 36 reads BIGINT, writes BIGINT,cwrites BIGINT */
 					INT8OID, INT8OID, INT8OID
 					};
+
 /*
 0 11750 (postmaster) S 1  
 4 11750 11750 0 -1 
@@ -65,6 +66,10 @@ Oid proctab_sig[] = {INT4OID, TEXTOID, TEXTOID, TEXTOID,
 41533440 140728896970319 140728896970375 140728896970375 140728896970715 
 0
 */
+
+Oid cpu_time_sig[] = { INT8OID, INT8OID, INT8OID, INT8OID, INT8OID };
+Oid load_load_avg_sig[] = { FLOAT4OID, FLOAT4OID, FLOAT4OID, INT4OID };
+
 
 #define GET_VALUE(value) \
 		p = strchr(p, ':'); \
@@ -91,14 +96,6 @@ enum proctab {i_pid, i_comm, i_fullcomm, i_state, i_ppid, i_pgrp, i_session,
 		i_syscw, i_reads, i_writes, i_cwrites};
 enum cputime {i_user, i_nice_c, i_system, i_idle, i_iowait};
 enum loadavg {i_load1, i_load5, i_load15, i_last_pid};
-enum memusage {i_memused, i_memfree, i_memshared, i_membuffers, i_memcached,
-		i_swapused, i_swapfree, i_swapcached};
-enum diskusage {i_major, i_minor, i_devname,
-		i_reads_completed, i_reads_merged, i_sectors_read, i_readtime,
-		i_writes_completed, i_writes_merged, i_sectors_written, i_writetime,
-		i_current_io, i_iotime, i_totaliotime,
-		i_discards_completed, i_discards_merged, i_sectors_discarded, i_discardtime,
-		i_flushes_completed, i_flushtime};
 
 int get_proctab(FuncCallContext *, char **);
 int get_cputime(char **);
@@ -323,93 +320,15 @@ get_uid_username( char *pid, char **uid, char **username )
 
 Datum pg_cputime(PG_FUNCTION_ARGS)
 {
-	FuncCallContext *funcctx;
-	int call_cntr;
-	int max_calls;
-	TupleDesc tupdesc;
-	AttInMetadata *attinmeta;
+	char **values = NULL;
+	struct statfs sb;
+	char buffer[4096];
+	char **lines;
+	int nlines;
+	char **tokens;
+	int ntok;
 
 	elog(DEBUG5, "pg_cputime: Entering stored function.");
-
-	/* stuff done only on the first call of the function */
-	if (SRF_IS_FIRSTCALL())
-	{
-		MemoryContext oldcontext;
-
-		/* create a function context for cross-call persistence */
-		funcctx = SRF_FIRSTCALL_INIT();
-
-		/* switch to memory context appropriate for multiple function calls */
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-
-		/* Build a tuple descriptor for our result type */
-		if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("function returning record called in context "
-							"that cannot accept type record")));
-
-		/*
-		 * generate attribute metadata needed later to produce tuples from raw
-		 * C strings
-		 */
-		attinmeta = TupleDescGetAttInMetadata(tupdesc);
-		funcctx->attinmeta = attinmeta;
-
-		funcctx->max_calls = 1;
-
-		MemoryContextSwitchTo(oldcontext);
-	}
-
-	/* stuff done on every call of the function */
-	funcctx = SRF_PERCALL_SETUP();
-
-	call_cntr = funcctx->call_cntr;
-	max_calls = funcctx->max_calls;
-	attinmeta = funcctx->attinmeta;
-
-	if (call_cntr < max_calls) /* do when there is more left to send */
-	{
-		HeapTuple tuple;
-		Datum result;
-
-		char **values = NULL;
-
-		values = (char **) palloc(5 * sizeof(char *));
-		values[i_user] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_nice_c] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_system] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_idle] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_iowait] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-
-		if (get_cputime(values) == 0)
-			SRF_RETURN_DONE(funcctx);
-
-		/* build a tuple */
-		tuple = BuildTupleFromCStrings(attinmeta, values);
-
-		/* make the tuple into a datum */
-		result = HeapTupleGetDatum(tuple);
-
-		SRF_RETURN_NEXT(funcctx, result);
-	}
-	else /* do when there is no more left */
-	{
-		SRF_RETURN_DONE(funcctx);
-	}
-}
-
-int
-get_cputime(char **values)
-{
-	struct statfs sb;
-	int fd;
-	int len;
-	char buffer[4096];
-	char *p;
-	char *q;
-
-	int length;
 
 	/* Check if /proc is mounted. */
 	if (statfs(PROCFS, &sb) < 0 || sb.f_type != PROC_SUPER_MAGIC)
@@ -419,35 +338,28 @@ get_cputime(char **values)
 	}
 
 	snprintf(buffer, sizeof(buffer) - 1, "%s/stat", PROCFS);
-	fd = open(buffer, O_RDONLY);
-	if (fd == -1)
-	{
-		elog(ERROR, "'%s' not found", buffer);
-		return 0;
-	}
-	len = read(fd, buffer, sizeof(buffer) - 1);
-	close(fd);
-	buffer[len] = '\0';
-	elog(DEBUG5, "pg_cputime: %s", buffer);
+	lines = read_nlsv(buffer, &nlines);
 
-	p = buffer;
+	elog(DEBUG5, "pg_cputime: %s", lines[0]);
 
-	SKIP_TOKEN(p);			/* skip cpu */
+	tokens = parse_ss_line(lines[0], &ntok);
+
+	values = (char **) palloc(5 * sizeof(char *));
 
 	/* user */
-	GET_NEXT_VALUE(p, q, values[i_user], length, "user not found", ' ');
+	values[i_user] = pstrdup(tokens[1]);
 
 	/* nice */
-	GET_NEXT_VALUE(p, q, values[i_nice_c], length, "nice not found", ' ');
+	values[i_nice_c] = pstrdup(tokens[2]);
 
 	/* system */
-	GET_NEXT_VALUE(p, q, values[i_system], length, "system not found", ' ');
+	values[i_system] = pstrdup(tokens[3]); 
 
 	/* idle */
-	GET_NEXT_VALUE(p, q, values[i_idle], length, "idle not found", ' ');
+	values[i_idle] = pstrdup(tokens[4]);
 
 	/* iowait */
-	GET_NEXT_VALUE(p, q, values[i_iowait], length, "iowait not found", ' ');
+	values[i_iowait] = pstrdup(tokens[5]);
 
 	elog(DEBUG5, "pg_cputime: [%d] user = %s", (int) i_user, values[i_user]);
 	elog(DEBUG5, "pg_cputime: [%d] nice = %s", (int) i_nice_c, values[i_nice_c]);
@@ -457,7 +369,8 @@ get_cputime(char **values)
 	elog(DEBUG5, "pg_cputime: [%d] iowait = %s", (int) i_iowait,
 			values[i_iowait]);
 
-	return 1;
+	return form_srf(fcinfo, &values, 1, 5, cpu_time_sig);
+
 }
 
 Datum pg_loadavg(PG_FUNCTION_ARGS)
@@ -611,346 +524,4 @@ get_loadavg(char **values)
 	return 1;
 }
 
-Datum pg_memusage(PG_FUNCTION_ARGS)
-{
-	FuncCallContext *funcctx;
-	int call_cntr;
-	int max_calls;
-	TupleDesc tupdesc;
-	AttInMetadata *attinmeta;
 
-
-	elog(DEBUG5, "pg_memusage: Entering stored function.");
-
-	/* stuff done only on the first call of the function */
-	if (SRF_IS_FIRSTCALL())
-	{
-		MemoryContext oldcontext;
-
-		/* create a function context for cross-call persistence */
-		funcctx = SRF_FIRSTCALL_INIT();
-
-		/* switch to memory context appropriate for multiple function calls */
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-
-		/* Build a tuple descriptor for our result type */
-		if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("function returning record called in context "
-							"that cannot accept type record")));
-
-		/*
-		 * generate attribute metadata needed later to produce tuples from raw
-		 * C strings
-		 */
-		attinmeta = TupleDescGetAttInMetadata(tupdesc);
-		funcctx->attinmeta = attinmeta;
-
-		funcctx->max_calls = 1;
-
-		MemoryContextSwitchTo(oldcontext);
-	}
-
-	/* stuff done on every call of the function */
-	funcctx = SRF_PERCALL_SETUP();
-
-	call_cntr = funcctx->call_cntr;
-	max_calls = funcctx->max_calls;
-	attinmeta = funcctx->attinmeta;
-
-	if (call_cntr < max_calls) /* do when there is more left to send */
-	{
-		HeapTuple tuple;
-		Datum result;
-
-		char **values = NULL;
-
-		values = (char **) palloc(8 * sizeof(char *));
-		values[i_memused] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_memfree] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_memshared] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_membuffers] =
-				(char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_memcached] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_swapused] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_swapfree] = (char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-		values[i_swapcached] =
-				(char *) palloc((BIGINT_LEN + 1) * sizeof(char));
-
-		if (get_memusage(values) == 0)
-			SRF_RETURN_DONE(funcctx);
-
-		/* build a tuple */
-		tuple = BuildTupleFromCStrings(attinmeta, values);
-
-		/* make the tuple into a datum */
-		result = HeapTupleGetDatum(tuple);
-
-		SRF_RETURN_NEXT(funcctx, result);
-	}
-	else /* do when there is no more left */
-	{
-		SRF_RETURN_DONE(funcctx);
-	}
-}
-
-int
-get_memusage(char **values)
-{
-	int length;
-	unsigned long memfree = 0;
-	unsigned long memtotal = 0;
-	unsigned long swapfree = 0;
-	unsigned long swaptotal = 0;
-
-	struct statfs sb;
-	int fd;
-	int len;
-	char buffer[4096];
-	char *p;
-	char *q;
-
-	/* Check if /proc is mounted. */
-	if (statfs(PROCFS, &sb) < 0 || sb.f_type != PROC_SUPER_MAGIC)
-	{
-		elog(ERROR, "proc filesystem not mounted on " PROCFS "\n");
-		return 0;
-	}
-
-	snprintf(buffer, sizeof(buffer) - 1, "%s/meminfo", PROCFS);
-	fd = open(buffer, O_RDONLY);
-	if (fd == -1)
-	{
-		elog(ERROR, "'%s' not found", buffer);
-		return 0;
-	}
-	len = read(fd, buffer, sizeof(buffer) - 1);
-	close(fd);
-	buffer[len] = '\0';
-	elog(DEBUG5, "pg_memusage: %s", buffer);
-
-	values[i_memshared][0] = '0';
-	values[i_memshared][1] = '\0';
-
-	p = buffer;
-	while (*p != '\0') {
-		if (strncmp(p, "Buffers:", 8) == 0)
-		{
-			SKIP_TOKEN(p);
-			GET_NEXT_VALUE(p, q, values[i_membuffers], length,
-					"Buffers not found", ' ');
-		}
-		else if (strncmp(p, "Cached:", 7) == 0)
-		{
-			SKIP_TOKEN(p);
-			GET_NEXT_VALUE(p, q, values[i_memcached], length,
-					"Cached not found", ' ');
-		}
-		else if (strncmp(p, "MemFree:", 8) == 0)
-		{
-			SKIP_TOKEN(p);
-			memfree = strtoul(p, &p, 10);
-			snprintf(values[i_memused], BIGINT_LEN, "%lu", memtotal - memfree);
-			snprintf(values[i_memfree], BIGINT_LEN, "%lu", memfree);
-		}
-		else if (strncmp(p, "MemShared:", 10) == 0)
-		{
-			SKIP_TOKEN(p);
-			GET_NEXT_VALUE(p, q, values[i_memshared], length,
-					"MemShared not found", ' ');
-		}
-		else if (strncmp(p, "MemTotal:", 9) == 0)
-		{
-			SKIP_TOKEN(p);
-			memtotal = strtoul(p, &p, 10);
-			elog(DEBUG5, "pg_memusage: MemTotal = %lu", memtotal);
-		}
-		else if (strncmp(p, "SwapFree:", 9) == 0)
-		{
-			SKIP_TOKEN(p);
-			swapfree = strtoul(p, &p, 10);
-			snprintf(values[i_swapused], BIGINT_LEN, "%lu",
-					swaptotal - swapfree);
-			snprintf(values[i_swapfree], BIGINT_LEN, "%lu", swapfree);
-		}
-		else if (strncmp(p, "SwapCached:", 11) == 0)
-		{
-			SKIP_TOKEN(p);
-			GET_NEXT_VALUE(p, q, values[i_swapcached], length,
-					"SwapCached not found", ' ');
-		}
-		else if (strncmp(p, "SwapTotal:", 10) == 0)
-		{
-			SKIP_TOKEN(p);
-			swaptotal = strtoul(p, &p, 10);
-			elog(DEBUG5, "pg_memusage: SwapTotal = %lu", swaptotal);
-		}
-		p = strchr(p, '\n');
-		++p;
-	}
-
-	elog(DEBUG5, "pg_memusage: [%d] Buffers = %s", (int) i_membuffers,
-			values[i_membuffers]);
-	elog(DEBUG5, "pg_memusage: [%d] Cached = %s", (int) i_memcached,
-			values[i_memcached]);
-	elog(DEBUG5, "pg_memusage: [%d] MemFree = %s", (int) i_memfree,
-			values[i_memfree]);
-	elog(DEBUG5, "pg_memusage: [%d] MemUsed = %s", (int) i_memused,
-			values[i_memused]);
-	elog(DEBUG5, "pg_memusage: [%d] MemShared = %s", (int) i_memshared,
-			values[i_memshared]);
-	elog(DEBUG5, "pg_memusage: [%d] SwapCached = %s", (int) i_swapcached,
-			values[i_swapcached]);
-	elog(DEBUG5, "pg_memusage: [%d] SwapFree = %s", (int) i_swapfree,
-			values[i_swapfree]);
-	elog(DEBUG5, "pg_memusage: [%d] SwapUsed = %s", (int) i_swapused,
-			values[i_swapused]);
-
-	return 1;
-}
-
-Datum pg_diskusage(PG_FUNCTION_ARGS)
-{
-	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
-	MemoryContext per_query_ctx;
-	MemoryContext oldcontext;
-	TupleDesc tupleDesc;
-	Tuplestorestate *tupleStore;
-
-	Datum values[20];
-	bool nulls[20];
-
-	char device_name[4096];
-	struct statfs sb;
-	FILE *fd;
-	int ret;
-
-	int major = 0;
-	int minor = 0;
-
-	int64 reads_completed = 0;
-	int64 reads_merged = 0;
-	int64 sectors_read = 0;
-	int64 readtime = 0;
-
-	int64 writes_completed = 0;
-	int64 writes_merged = 0;
-	int64 sectors_written = 0;
-	int64 writetime = 0;
-
-	int64 current_io = 0;
-	int64 iotime = 0;
-	int64 totaliotime = 0;
-
-	int64 discards_completed = 0;
-	int64 discards_merged = 0;
-	int64 sectors_discarded = 0;
-	int64 discardtime = 0;
-
-	int64 flushes_completed = 0;
-	int64 flushtime = 0;
-
-	elog(DEBUG5, "pg_diskusage: Entering stored function.");
-
-	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg
-				 ("set-valued function called in context that cannot accept a set")));
-	if (!(rsinfo->allowedModes & SFRM_Materialize))
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("materialize mode required, but it is not "
-						"allowed in this context")));
-
-	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
-	oldcontext = MemoryContextSwitchTo(per_query_ctx);
-
-	/*
-	 * Build a tuple descriptor for our result type
-	 */
-	if (get_call_result_type(fcinfo, NULL, &tupleDesc) != TYPEFUNC_COMPOSITE)
-		elog(ERROR, "return type must be a row type");
-
-	tupleStore = tuplestore_begin_heap(true, false, work_mem);
-	rsinfo->returnMode = SFRM_Materialize;
-	rsinfo->setResult = tupleStore;
-	rsinfo->setDesc = tupleDesc;
-
-	MemoryContextSwitchTo(oldcontext);
-
-	memset(nulls, 0, sizeof(nulls));
-	memset(values, 0, sizeof(values));
-
-	if (statfs("/proc", &sb) < 0 || sb.f_type != PROC_SUPER_MAGIC)
-	{
-		elog(ERROR, "proc filesystem not mounted on /proc\n");
-		return (Datum) 0;
-	}
-	if ((fd = AllocateFile("/proc/diskstats", PG_BINARY_R)) == NULL)
-	{
-		elog(ERROR, "File not found: '/proc/diskstats'");
-		return (Datum) 0;
-	}
-
-#define HS "%*[ \t]"
-
-	while ((ret =
-			fscanf(fd, (
-					   "%d" HS "%d" HS "%s"
-					   HS "%lu" HS "%lu" HS "%lu" HS "%lu"
-					   HS "%lu" HS "%lu" HS "%lu" HS "%lu"
-					   HS "%lu" HS "%lu" HS "%lu"
-					   HS "%lu" HS "%lu" HS "%lu" HS "%lu"
-					   HS "%lu" HS "%lu"
-					   ),
-				   &major, &minor, device_name,
-				   &reads_completed, &reads_merged, &sectors_read, &readtime,
-				   &writes_completed, &writes_merged, &sectors_written, &writetime,
-				   &current_io, &iotime, &totaliotime,
-				   &discards_completed, &discards_merged, &sectors_discarded, &discardtime,
-				   &flushes_completed, &flushtime
-				)) > 0)
-	{
-		/*
-		 * Consume additional data on the line, so it isn't
-		 * interpreted as part of the next (newline-delimited)
-		 * diskstats record.
-		 */
-		ret = fscanf(fd, "%*[^\n]");
-
-		values[i_major] = Int32GetDatum(major);
-		values[i_minor] = Int32GetDatum(minor);
-		values[i_devname] = CStringGetTextDatum(device_name);
-
-		values[i_reads_completed] = Int64GetDatumFast(reads_completed);
-		values[i_reads_merged] = Int64GetDatumFast(reads_merged);
-		values[i_sectors_read] = Int64GetDatumFast(sectors_read);
-		values[i_readtime] = Int64GetDatumFast(readtime);
-
-		values[i_writes_completed] = Int64GetDatumFast(writes_completed);
-		values[i_writes_merged] = Int64GetDatumFast(writes_merged);
-		values[i_sectors_written] = Int64GetDatumFast(sectors_written);
-		values[i_writetime] = Int64GetDatumFast(writetime);
-
-		values[i_current_io] = Int64GetDatumFast(current_io);
-		values[i_iotime] = Int64GetDatumFast(iotime);
-		values[i_totaliotime] = Int64GetDatumFast(totaliotime);
-
-		values[i_discards_completed] = discards_completed;
-		values[i_discards_merged] = discards_merged;
-		values[i_sectors_discarded] = sectors_discarded;
-		values[i_discardtime] = discardtime;
-
-		values[i_flushes_completed] = flushes_completed;
-		values[i_flushtime] = flushtime;
-
-		tuplestore_putvalues(tupleStore, tupleDesc, values, nulls);
-	}
-	FreeFile(fd);
-
-	tuplestore_donestoring(tupleStore);
-
-	return (Datum) 0;
-}

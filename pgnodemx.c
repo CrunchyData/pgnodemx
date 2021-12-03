@@ -96,7 +96,7 @@ Oid text_16_bigint_sig[] = {TEXTOID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
 							INT8OID, INT8OID, INT8OID, INT8OID};
-
+						
 void _PG_init(void);
 Datum pgnodemx_cgroup_mode(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_path(PG_FUNCTION_ARGS);
