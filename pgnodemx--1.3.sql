@@ -221,7 +221,7 @@ RETURNS TEXT
 AS 'MODULE_PATHNAME', 'pgnodemx_version'
 LANGUAGE C STABLE STRICT;
 
-CREATE OR REPLACE FUNCTION pg_proctab(
+CREATE OR REPLACE FUNCTION pgnodemx_proc_tab(
 		OUT pid INTEGER,
 		OUT comm TEXT,
 		OUT fullcomm TEXT,
@@ -262,24 +262,24 @@ CREATE OR REPLACE FUNCTION pg_proctab(
 		OUT writes BIGINT,
 		OUT cwrites BIGINT)
 RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pg_proctab'
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_tab'
 LANGUAGE C IMMUTABLE STRICT;
 
-CREATE OR REPLACE FUNCTION pg_cputime(
+CREATE OR REPLACE FUNCTION pgnodemx_proc_cputime(
 		OUT "user" BIGINT,
 		OUT nice BIGINT,
 		OUT system BIGINT,
 		OUT idle BIGINT,
 		OUT iowait BIGINT)
 RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pg_cputime'
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_cputime'
 LANGUAGE C IMMUTABLE STRICT;
 
-CREATE OR REPLACE FUNCTION pg_loadavg(
+CREATE OR REPLACE FUNCTION pgnodemx_proc_loadavg(
 		OUT load1 FLOAT,
 		OUT load5 FLOAT,
 		OUT load15 FLOAT,
 		OUT last_pid INTEGER)
 RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pg_loadavg'
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_loadavg'
 LANGUAGE C IMMUTABLE STRICT;

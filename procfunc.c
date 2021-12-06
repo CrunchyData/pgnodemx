@@ -95,19 +95,17 @@ enum cputime {i_user, i_nice_c, i_system, i_idle, i_iowait};
 enum loadavg {i_load1, i_load5, i_load15, i_last_pid};
 
 
-Datum pg_proctab(PG_FUNCTION_ARGS);
-Datum pg_cputime(PG_FUNCTION_ARGS);
-Datum pg_loadavg(PG_FUNCTION_ARGS);
-Datum pg_memusage(PG_FUNCTION_ARGS);
-Datum pg_diskusage(PG_FUNCTION_ARGS);
+Datum pgnodemx_proc_tab(PG_FUNCTION_ARGS);
+Datum pgnodemx_proc_cputime(PG_FUNCTION_ARGS);
+Datum pgnodemx_proc_loadavg(PG_FUNCTION_ARGS);
+Datum pgnodemx_proc_disk(PG_FUNCTION_ARGS);
 
-PG_FUNCTION_INFO_V1(pg_proctab);
-PG_FUNCTION_INFO_V1(pg_cputime);
-PG_FUNCTION_INFO_V1(pg_loadavg);
-PG_FUNCTION_INFO_V1(pg_memusage);
-PG_FUNCTION_INFO_V1(pg_diskusage);
+PG_FUNCTION_INFO_V1(pgnodemx_proc_tab);
+PG_FUNCTION_INFO_V1(pgnodemx_proc_cputime);
+PG_FUNCTION_INFO_V1(pgnodemx_proc_loadavg);
+PG_FUNCTION_INFO_V1(pgnodemx_proc_disk);
 
-Datum pg_proctab(PG_FUNCTION_ARGS)
+Datum pgnodemx_proc_tab(PG_FUNCTION_ARGS)
 {
 	char buffer[256];
 	char **child_pids;
@@ -119,7 +117,7 @@ Datum pg_proctab(PG_FUNCTION_ARGS)
 
 	char  ***values = (char ***) palloc(0);
 
-	elog(DEBUG5, "pg_proctab: Entering stored function.");
+	elog(DEBUG5, "pgnodemx_proc_tab: Entering stored function.");
 
 	/* Get pid of all client connections. */
 
@@ -310,7 +308,7 @@ get_uid_username( char *pid, char **uid, char **username )
 	}
 }
 
-Datum pg_cputime(PG_FUNCTION_ARGS)
+Datum pgnodemx_proc_cputime(PG_FUNCTION_ARGS)
 {
 	char **values = NULL;
 	struct statfs sb;
@@ -320,7 +318,7 @@ Datum pg_cputime(PG_FUNCTION_ARGS)
 	char **tokens;
 	int ntok;
 
-	elog(DEBUG5, "pg_cputime: Entering stored function.");
+	elog(DEBUG5, "pgnodemx_proc_cputime: Entering stored function.");
 
 	/* Check if /proc is mounted. */
 	if (statfs(PROCFS, &sb) < 0 || sb.f_type != PROC_SUPER_MAGIC)
@@ -333,7 +331,7 @@ Datum pg_cputime(PG_FUNCTION_ARGS)
 	snprintf(buffer, sizeof(buffer) - 1, "%s/stat", PROCFS);
 	lines = read_nlsv(buffer, &nlines);
 
-	elog(DEBUG5, "pg_cputime: %s", lines[0]);
+	elog(DEBUG5, "pgnodemx_proc_cputime: %s", lines[0]);
 
 	tokens = parse_ss_line(lines[0], &ntok);
 
@@ -345,19 +343,19 @@ Datum pg_cputime(PG_FUNCTION_ARGS)
 	values[i_idle] = pstrdup(tokens[4]);
 	values[i_iowait] = pstrdup(tokens[5]);
 
-	elog(DEBUG5, "pg_cputime: [%d] user = %s", (int) i_user, values[i_user]);
-	elog(DEBUG5, "pg_cputime: [%d] nice = %s", (int) i_nice_c, values[i_nice_c]);
-	elog(DEBUG5, "pg_cputime: [%d] system = %s", (int) i_system,
+	elog(DEBUG5, "pgnodemx_proc_cputime: [%d] user = %s", (int) i_user, values[i_user]);
+	elog(DEBUG5, "pgnodemx_proc_cputime: [%d] nice = %s", (int) i_nice_c, values[i_nice_c]);
+	elog(DEBUG5, "pgnodemx_proc_cputime: [%d] system = %s", (int) i_system,
 			values[i_system]);
-	elog(DEBUG5, "pg_cputime: [%d] idle = %s", (int) i_idle, values[i_idle]);
-	elog(DEBUG5, "pg_cputime: [%d] iowait = %s", (int) i_iowait,
+	elog(DEBUG5, "pgnodemx_proc_cputime: [%d] idle = %s", (int) i_idle, values[i_idle]);
+	elog(DEBUG5, "pgnodemx_proc_cputime: [%d] iowait = %s", (int) i_iowait,
 			values[i_iowait]);
 
 	return form_srf(fcinfo, &values, 1, 5, cpu_time_sig);
 
 }
 
-Datum pg_loadavg(PG_FUNCTION_ARGS)
+Datum pgnodemx_proc_loadavg(PG_FUNCTION_ARGS)
 {
 	char **values = NULL;
 	struct statfs sb;
@@ -367,7 +365,7 @@ Datum pg_loadavg(PG_FUNCTION_ARGS)
 	char **tokens;
 	int ntok;
 
-	elog(DEBUG5, "pg_loadavg: Entering stored function.");
+	elog(DEBUG5, "pgnodemx_proc_loadavg: Entering stored function.");
 
 	values = (char **) palloc(4 * sizeof(char *));
 	
@@ -382,7 +380,7 @@ Datum pg_loadavg(PG_FUNCTION_ARGS)
 	snprintf(buffer, sizeof(buffer) - 1, "%s/loadavg", PROCFS);
 	lines = read_nlsv(buffer, &nlines);
 
-	elog(DEBUG5, "pg_loadavg: %s", buffer);
+	elog(DEBUG5, "pgnodemx_proc_loadavg: %s", buffer);
 
 	tokens = parse_ss_line(lines[0], &ntok);
 
@@ -394,13 +392,13 @@ Datum pg_loadavg(PG_FUNCTION_ARGS)
 	/* skip running/tasks */
 	values[i_last_pid] = pstrdup(tokens[4]);
 
-	elog(DEBUG5, "pg_loadavg: [%d] load1 = %s", (int) i_load1,
+	elog(DEBUG5, "pgnodemx_proc_loadavg: [%d] load1 = %s", (int) i_load1,
 			values[i_load1]);
-	elog(DEBUG5, "pg_loadavg: [%d] load5 = %s", (int) i_load5,
+	elog(DEBUG5, "pgnodemx_proc_loadavg: [%d] load5 = %s", (int) i_load5,
 			values[i_load5]);
-	elog(DEBUG5, "pg_loadavg: [%d] load15 = %s", (int) i_load15,
+	elog(DEBUG5, "pgnodemx_proc_loadavg: [%d] load15 = %s", (int) i_load15,
 			values[i_load15]);
-	elog(DEBUG5, "pg_loadavg: [%d] last_pid = %s", (int) i_last_pid,
+	elog(DEBUG5, "pgnodemx_proc_loadavg: [%d] last_pid = %s", (int) i_last_pid,
 			values[i_last_pid]);
 
 	return form_srf(fcinfo, &values, 1, 4, load_avg_sig);

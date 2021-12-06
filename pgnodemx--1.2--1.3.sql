@@ -3,7 +3,7 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION pgnodemx" to load this file. \quit
 
-CREATE OR REPLACE FUNCTION pg_proctab(
+CREATE OR REPLACE FUNCTION pgnodemx_proc_tab(
 		OUT pid INTEGER,
 		OUT comm VARCHAR,
 		OUT fullcomm VARCHAR,
@@ -44,29 +44,29 @@ CREATE OR REPLACE FUNCTION pg_proctab(
 		OUT writes BIGINT,
 		OUT cwrites BIGINT)
 RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pg_proctab'
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_tab'
 LANGUAGE C IMMUTABLE STRICT;
 
-CREATE OR REPLACE FUNCTION pg_cputime(
+CREATE OR REPLACE FUNCTION pgnodemx_proc_cputime(
 		OUT "user" BIGINT,
 		OUT nice BIGINT,
 		OUT system BIGINT,
 		OUT idle BIGINT,
 		OUT iowait BIGINT)
 RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pg_cputime'
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_cputime'
 LANGUAGE C IMMUTABLE STRICT;
 
-CREATE OR REPLACE FUNCTION pg_loadavg(
+CREATE OR REPLACE FUNCTION pgnodemx_proc_loadavg(
 		OUT load1 FLOAT,
 		OUT load5 FLOAT,
 		OUT load15 FLOAT,
 		OUT last_pid INTEGER)
 RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pg_loadavg'
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_loadavg'
 LANGUAGE C IMMUTABLE STRICT;
 
-CREATE OR REPLACE FUNCTION pg_memusage(
+CREATE OR REPLACE FUNCTION pgnodemx_proc_memusage(
 		OUT memused BIGINT,
 		OUT memfree BIGINT,
 		OUT memshared BIGINT,
@@ -76,10 +76,10 @@ CREATE OR REPLACE FUNCTION pg_memusage(
 		OUT swapfree BIGINT,
 		OUT swapcached BIGINT)
 RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pg_memusage'
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_memusage'
 LANGUAGE C IMMUTABLE STRICT;
 
-CREATE OR REPLACE FUNCTION pg_diskusage (
+CREATE OR REPLACE FUNCTION pgnodemx_proc_disk (
         OUT major smallint,
         OUT minor smallint,
         OUT devname text,
@@ -95,5 +95,5 @@ CREATE OR REPLACE FUNCTION pg_diskusage (
         OUT iotime bigint,
         OUT totaliotime bigint)
 RETURNS SETOF record
-AS 'MODULE_PATHNAME', 'pg_diskusage'
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_disk'
 LANGUAGE C IMMUTABLE STRICT;
