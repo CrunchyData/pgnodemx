@@ -26,8 +26,8 @@
  * MODIFICATIONS.
  */
 
-#ifndef _PG_PROCTAB_H_
-#define _PG_PROCTAB_H_
+#ifndef _PROCFUNC_H_
+#define _PROCFUNC_H_
 
 
 #define BIGINT_LEN 20
@@ -37,6 +37,16 @@
 #include <ctype.h>
 #include <linux/magic.h>
 
+extern char *get_fullcmd(char *pid);
+extern char *get_rss(char *rss);
+extern char ***read_kv_file( char *filename, int *nlines );
+extern void get_uid_username( char *pid, char **uid, char **username );
+extern int get_proctab(FuncCallContext *, char **);
+extern int get_cputime(char **);
+extern int get_loadavg(char **);
+extern int get_memusage(char **);
+
+
 #define PROCFS "/proc"
 
-#endif /* _PG_PROCTAB_H_ */
+#endif /* _PROCFUNC_H_ */

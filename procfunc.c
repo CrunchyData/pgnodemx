@@ -42,15 +42,10 @@
 #include <sys/param.h>
 #include "genutils.h"
 #include "parseutils.h"
-#include "pg_proctab.h"
+#include "procfunc.h"
 
 #define FULLCOMM_LEN 1024
-char *get_fullcmd(char *pid);
-char *get_rss(char *rss);
-char ***read_kv_file( char *filename, int *nlines );
-void get_uid_username( char *pid, char **uid, char **username );
 
-// from pg_proctab.c
 #define NUM_COLS 39
 					/* pid INTEGER, comm TEXT, fullcomm TEXT, state TEXT */
 Oid proctab_sig[] = {INT4OID, TEXTOID, TEXTOID, TEXTOID, 
@@ -99,10 +94,6 @@ Oid load_avg_sig[] = { FLOAT8OID, FLOAT8OID, FLOAT8OID, INT4OID };
 enum cputime {i_user, i_nice_c, i_system, i_idle, i_iowait};
 enum loadavg {i_load1, i_load5, i_load15, i_last_pid};
 
-int get_proctab(FuncCallContext *, char **);
-int get_cputime(char **);
-int get_loadavg(char **);
-int get_memusage(char **);
 
 Datum pg_proctab(PG_FUNCTION_ARGS);
 Datum pg_cputime(PG_FUNCTION_ARGS);
@@ -221,7 +212,6 @@ Datum pg_proctab(PG_FUNCTION_ARGS)
 			{
 				values[j][l++] = pstrdup(iostat[i][1]);
 			}
-
 		}
 
 		return form_srf(fcinfo, values, nchildren, NUM_COLS, proctab_sig);
