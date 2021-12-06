@@ -1,5 +1,29 @@
 /*
- * Copyright (C) 2008 Mark Wong
+ * 
+ * SQL functions that allow capture of node OS metrics from PostgreSQL
+ * Dave Cramer <davecramer@gmail.com>
+ * 
+ * This code is released under the PostgreSQL license.
+ *
+ * Copyright 2021 Crunchy Data Solutions, Inc.
+ *
+ * Permission to use, copy, modify, and distribute this software and its
+ * documentation for any purpose, without fee, and without a written
+ * agreement is hereby granted, provided that the above copyright notice
+ * and this paragraph and the following two paragraphs appear in all copies.
+ *
+ * IN NO EVENT SHALL CRUNCHY DATA SOLUTIONS, INC. BE LIABLE TO ANY PARTY
+ * FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES,
+ * INCLUDING LOST PROFITS, ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS
+ * DOCUMENTATION, EVEN IF THE CRUNCHY DATA SOLUTIONS, INC. HAS BEEN ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * THE CRUNCHY DATA SOLUTIONS, INC. SPECIFICALLY DISCLAIMS ANY WARRANTIES,
+ * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ * AND FITNESS FOR A PARTICULAR PURPOSE. THE SOFTWARE PROVIDED HEREUNDER IS
+ * ON AN "AS IS" BASIS, AND THE CRUNCHY DATA SOLUTIONS, INC. HAS NO
+ * OBLIGATIONS TO PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR
+ * MODIFICATIONS.
  */
 
 #include "postgres.h"
@@ -72,13 +96,6 @@ Oid load_avg_sig[] = { FLOAT8OID, FLOAT8OID, FLOAT8OID, INT4OID };
 
 #define pagetok(x)	((x) * sysconf(_SC_PAGESIZE) >> 10)
 
-enum proctab {i_pid, i_comm, i_fullcomm, i_state, i_ppid, i_pgrp, i_session,
-		i_tty_nr, i_tpgid, i_flags, i_minflt, i_cminflt, i_majflt, i_cmajflt,
-		i_utime, i_stime, i_cutime, i_cstime, i_priority, i_nice,
-		i_num_threads, i_itrealvalue, i_starttime, i_vsize, i_rss,
-		i_exit_signal, i_processor, i_rt_priority, i_policy,
-		i_delayacct_blkio_ticks, i_uid, i_username, i_rchar, i_wchar, i_syscr,
-		i_syscw, i_reads, i_writes, i_cwrites};
 enum cputime {i_user, i_nice_c, i_system, i_idle, i_iowait};
 enum loadavg {i_load1, i_load5, i_load15, i_last_pid};
 
