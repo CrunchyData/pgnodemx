@@ -126,7 +126,7 @@ SELECT * FROM proc_meminfo();
 SELECT * FROM proc_network_stats();
 ```
 
-### Get "/proc/<pid>/io" for all PostgreSQL processes as a virtual table
+### Get "/proc/\<pid\>/io" for all PostgreSQL processes as a virtual table
 ```
 SELECT * FROM proc_pid_io();
 ```
@@ -136,7 +136,7 @@ SELECT * FROM proc_pid_io();
 SELECT * FROM proc_pid_cmdline();
 ```
 
-### Get "/proc/<pid>/stat" for all PostgreSQL processes as a virtual table
+### Get "/proc/\<pid\>/stat" for all PostgreSQL processes as a virtual table
 ```
 SELECT * FROM proc_pid_stat();
 ```
