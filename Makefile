@@ -2,7 +2,7 @@ MODULE_big	= pgnodemx
 OBJS		= pgnodemx.o cgroup.o envutils.o fileutils.o genutils.o kdapi.o parseutils.o procfunc.o
 PG_CPPFLAGS	= -I$(libpq_srcdir)
 EXTENSION	= pgnodemx
-DATA		= pgnodemx--1.0--1.1.sql pgnodemx--1.1--1.2.sql pgnodemx--1.2--1.3.sql pgnodemx--1.3.sql
+DATA		= pgnodemx--1.0--1.1.sql pgnodemx--1.1--1.2.sql pgnodemx--1.2--1.3.sql pgnodemx--1.3.sql sql/pg_proctab_compat.sql
 
 GHASH := $(shell git rev-parse --short HEAD)
 

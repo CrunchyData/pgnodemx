@@ -126,6 +126,43 @@ SELECT * FROM proc_meminfo();
 SELECT * FROM proc_network_stats();
 ```
 
+### Get "/proc/<pid>/io" for all PostgreSQL processes as a virtual table
+```
+SELECT * FROM proc_pid_io();
+```
+
+### Get the full command line, uid, and username for all PostgreSQL processes as a virtual table
+```
+SELECT * FROM proc_pid_cmdline();
+```
+
+### Get "/proc/<pid>/stat" for all PostgreSQL processes as a virtual table
+```
+SELECT * FROM proc_pid_stat();
+```
+
+### Get first line of "/proc/stat" as a virtual table
+```
+SELECT * FROM proc_cputime();
+```
+
+### Get first line of "/proc/loadavg" as a virtual table
+```
+SELECT * FROM proc_loadavg();
+```
+
+## pg_proctab Compatibility Functions for use with pg_top
+
+Four functions are provided in a script that match the SQL interface presented by the pg_proctab extension.
+```
+SELECT * FROM pg_cputime();
+SELECT * FROM pg_loadavg();
+SELECT * FROM pg_memusage();
+SELECT * FROM pg_proctab();
+```
+
+These functions are not installed by default. They may be installed by executing the pg_proctab_compat.sql script.
+
 ## System Information Related Functions
 
 ### Get file system information as a virtual table
@@ -145,6 +182,11 @@ SELECT fips_mode();
 SELECT symbol_filename(sym_name text);
 ```
 * Returns the source C library from whence the C function sym_name comes. Returns NULL on any errors.
+
+### Convert number of kernel memory pages to bytes
+```
+SELECT kpages_to_bytes(num_k_pages numeric);
+```
 
 ## Kubernetes DownwardAPI Related Functions
 
