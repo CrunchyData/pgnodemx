@@ -1,7 +1,6 @@
 /*
  * 
- * SQL functions that allow capture of node OS metrics from PostgreSQL
- * Dave Cramer <davecramer@gmail.com>
+ * Return signatures for SRFs
  * 
  * This code is released under the PostgreSQL license.
  *
@@ -29,24 +28,6 @@
 #ifndef _PROCFUNC_H_
 #define _PROCFUNC_H_
 
-
-#define BIGINT_LEN 20
-#define FLOAT_LEN 20
-#define INTEGER_LEN 10
-
-#include <ctype.h>
-#include <linux/magic.h>
-
-extern char *get_fullcmd(char *pid);
-extern char *get_rss(char *rss);
-extern char ***read_kv_file( char *filename, int *nlines );
-extern void get_uid_username( char *pid, char **uid, char **username );
-extern int get_proctab(FuncCallContext *, char **);
-extern int get_cputime(char **);
-extern int get_loadavg(char **);
-extern int get_memusage(char **);
-
-
-#define PROCFS "/proc"
+extern bool check_procfs(void);
 
 #endif /* _PROCFUNC_H_ */

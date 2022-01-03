@@ -58,22 +58,10 @@
 #include "genutils.h"
 #include "kdapi.h"
 #include "parseutils.h"
+#include "procfunc.h"
+#include "srfsigs.h"
 
 PG_MODULE_MAGIC;
-
-/* human readable to bytes */
-#if PG_VERSION_NUM < 90600
-#define h2b(arg1) size_bytes(arg1)
-#else
-#define h2b(arg1) \
-  DatumGetInt64(DirectFunctionCall1(pg_size_bytes, PointerGetDatum(cstring_to_text(arg1))))
-#endif
-
-/* various /proc/ source files */
-#define diskstats	"/proc/diskstats"
-#define mountinfo	"/proc/self/mountinfo"
-#define meminfo		"/proc/meminfo"
-#define netstat		"/proc/self/net/dev"
 
 /* function return signatures */
 Oid text_sig[] = {TEXTOID};
@@ -96,7 +84,32 @@ Oid text_16_bigint_sig[] = {TEXTOID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
 							INT8OID, INT8OID, INT8OID, INT8OID};
-						
+
+
+Oid _5_bigint_sig[] = { INT8OID, INT8OID, INT8OID, INT8OID, INT8OID };
+
+Oid int_7_numeric_sig[] = { INT4OID, NUMERICOID, NUMERICOID, NUMERICOID,
+							NUMERICOID, NUMERICOID, NUMERICOID, NUMERICOID };
+Oid int_text_int_text_sig[] = { INT4OID, TEXTOID, INT4OID, TEXTOID };
+Oid load_avg_sig[] = { FLOAT8OID, FLOAT8OID, FLOAT8OID, INT4OID };
+
+/* proc_pid_stat is unique enough to have its own sig */
+Oid proc_pid_stat_sig[] = {INT4OID, TEXTOID, TEXTOID, 
+						   INT4OID, INT4OID, INT4OID, INT4OID,
+						   INT4OID, INT8OID, NUMERICOID, NUMERICOID,
+						   NUMERICOID, NUMERICOID, NUMERICOID, NUMERICOID,
+						   INT8OID, INT8OID, INT8OID, INT8OID,
+						   INT8OID, INT8OID, NUMERICOID, NUMERICOID,
+						   INT8OID, NUMERICOID, NUMERICOID, NUMERICOID,
+						   NUMERICOID, NUMERICOID, NUMERICOID, NUMERICOID,
+						   NUMERICOID, NUMERICOID, NUMERICOID, NUMERICOID,
+						   NUMERICOID, NUMERICOID, INT4OID, INT4OID,
+						   INT8OID, INT8OID, NUMERICOID, NUMERICOID,
+						   INT8OID, NUMERICOID, NUMERICOID, NUMERICOID,
+						   NUMERICOID, NUMERICOID, NUMERICOID, NUMERICOID,
+						   INT4OID
+						  };
+
 void _PG_init(void);
 Datum pgnodemx_cgroup_mode(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_path(PG_FUNCTION_ARGS);
@@ -113,11 +126,10 @@ Datum pgnodemx_cgroup_setof_ksv(PG_FUNCTION_ARGS);
 Datum pgnodemx_cgroup_setof_nkv(PG_FUNCTION_ARGS);
 Datum pgnodemx_envvar_text(PG_FUNCTION_ARGS);
 Datum pgnodemx_envvar_bigint(PG_FUNCTION_ARGS);
-Datum pgnodemx_proc_meminfo(PG_FUNCTION_ARGS);
-Datum pgnodemx_fsinfo(PG_FUNCTION_ARGS);
-Datum pgnodemx_network_stats(PG_FUNCTION_ARGS);
 Datum pgnodemx_kdapi_setof_kv(PG_FUNCTION_ARGS);
 Datum pgnodemx_kdapi_scalar_bigint(PG_FUNCTION_ARGS);
+
+bool proc_enabled = false;
 
 /*
  * Entrypoint of this module.
@@ -193,7 +205,13 @@ _PG_init(void)
 		kdapi_enabled = false;
 	}
 
-    inited = true;
+	/*
+	 * Check procfs exists.
+	 * The "proc" functions are disabled if not.
+	 */
+	proc_enabled = check_procfs();
+
+	inited = true;
 }
 
 PG_FUNCTION_INFO_V1(pgnodemx_cgroup_mode);
@@ -585,369 +603,6 @@ pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
 				varname)));
 
 	PG_RETURN_INT64(result);
-}
-
-/*
- * "/proc" files: these files have all kinds of formats. For now
- * at least do not try to create generic parsing functions. Just
- * create a handful of specific access functions for the most
- * interesting (to us) files.
- */
-
-/*
- * /proc/diskstats file:
- * 
- *  1 - major number
- *  2 - minor mumber
- *  3 - device name
- *  4 - reads completed successfully
- *  5 - reads merged
- *  6 - sectors read
- *  7 - time spent reading (ms)
- *  8 - writes completed
- *  9 - writes merged
- * 10 - sectors written
- * 11 - time spent writing (ms)
- * 12 - I/Os currently in progress
- * 13 - time spent doing I/Os (ms)
- * 14 - weighted time spent doing I/Os (ms)
- * 
- * Kernel 4.18+ appends four more fields for discard
- * tracking putting the total at 18:
- * 
- * 15 - discards completed successfully
- * 16 - discards merged
- * 17 - sectors discarded
- * 18 - time spent discarding
- * 
- * Kernel 5.5+ appends two more fields for flush requests:
- * 
- * 19 - flush requests completed successfully
- * 20 - time spent flushing
- * 
- * For now, validate either 14,18, or 20 fields found when
- * parsing the lines, but only return the first 14. If there
- * is demand for the other fields at some point, possibly
- * add them then.
- */
-PG_FUNCTION_INFO_V1(pgnodemx_proc_diskstats);
-Datum
-pgnodemx_proc_diskstats(PG_FUNCTION_ARGS)
-{
-	int			nrow = 0;
-	int			ncol = 14;
-	char	 ***values = (char ***) palloc(0);
-	char	  **lines;
-	int			nlines;
-
-	/* read /proc/self/net/dev file */
-	lines = read_nlsv(diskstats, &nlines);
-
-	/*
-	 * These files have either 14,18, or 20 fields per line.
-	 * We will validate one of those lengths, but only use 14 of the
-	 * space separated columns. The third column is the device name.
-	 * Rest of the columns are bigints.
-	 */
-	if (nlines > 0)
-	{
-		int			j;
-		char	  **toks;
-
-		nrow = nlines;
-		values = (char ***) repalloc(values, nrow * sizeof(char **));
-		for (j = 0; j < nrow; ++j)
-		{
-			int			ntok;
-			int			k;
-
-			values[j] = (char **) palloc(ncol * sizeof(char *));
-
-			toks = parse_ss_line(lines[j], &ntok);
-			if (ntok != 14 && ntok != 18  && ntok != 20)
-				ereport(ERROR,
-						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
-							   ntok, diskstats, j + 1)));
-
-			for (k = 0; k < ncol; ++k)
-				values[j][k] = pstrdup(toks[k]);
-		}
-	}
-	else
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("pgnodemx: no data in file: %s ", diskstats)));
-
-	return form_srf(fcinfo, values, nrow, ncol, bigint_bigint_text_11_bigint_sig);
-}
-
-/*
- * 3.5	/proc/<pid>/mountinfo - Information about mounts
- * --------------------------------------------------------
- * 
- * This file contains lines of the form:
- * 
- * 36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw,errors=continue
- * (1)(2)(3)   (4)   (5)      (6)      (7)   (8) (9)   (10)         (11)
- * 
- * (1) mount ID:  unique identifier of the mount (may be reused after umount)
- * (2) parent ID:  ID of parent (or of self for the top of the mount tree)
- * (3) major:minor:  value of st_dev for files on filesystem
- * (4) root:  root of the mount within the filesystem
- * (5) mount point:  mount point relative to the process's root
- * (6) mount options:  per mount options
- * (7) optional fields:  zero or more fields of the form "tag[:value]"
- * (8) separator:  marks the end of the optional fields
- * (9) filesystem type:  name of filesystem of the form "type[.subtype]"
- * (10) mount source:  filesystem specific information or "none"
- * (11) super options:  per super block options
- * 
- * Parsers should ignore all unrecognised optional fields.  Currently the
- * possible optional fields are:
- * 
- * shared:X  mount is shared in peer group X
- * master:X  mount is slave to peer group X
- * propagate_from:X  mount is slave and receives propagation from peer group X (*)
- * unbindable  mount is unbindable
- * --------------------------------------------------------
- * 
- * Map fields 1 - 6, skip 7 (one or more) and 8, map 9 - 11 to a virtual
- * table with 10 columns (split major:minor into two columns)
- */
-PG_FUNCTION_INFO_V1(pgnodemx_proc_mountinfo);
-Datum
-pgnodemx_proc_mountinfo(PG_FUNCTION_ARGS)
-{
-	int			nrow = 0;
-	int			ncol = 10;
-	char	 ***values = (char ***) palloc(0);
-	char	  **lines;
-	int			nlines;
-
-	/* read /proc/self/net/dev file */
-	lines = read_nlsv(mountinfo, &nlines);
-
-	/*
-	 * These files are complicated - see above.
-	 */
-	if (nlines > 0)
-	{
-		int			j;
-		char	  **toks;
-
-		nrow = nlines;
-		values = (char ***) repalloc(values, nrow * sizeof(char **));
-		for (j = 0; j < nrow; ++j)
-		{
-			int			ntok;
-			int			k;
-			int			c = 0;
-			bool		sep_found = false;
-
-			values[j] = (char **) palloc(ncol * sizeof(char *));
-
-			toks = parse_ss_line(lines[j], &ntok);
-			/* there shoould be at least 10 tokens */
-			if (ntok < 10)
-				ereport(ERROR,
-						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
-							   ntok, mountinfo, j + 1)));
-
-			/* iterate all found columns and keep the ones we want */
-			for (k = 0; k < ntok; ++k)
-			{
-				/* grab the first 6 columns */
-				if (k < 6)
-				{
-					if (k != 2)
-					{
-						values[j][c] = pstrdup(toks[k]);
-						++c;
-					}
-					else
-					{
-						/* split major:minor into two columns */
-						char   *p = strchr(toks[k], ':');
-						Size	len;
-
-						if (!p)
-							ereport(ERROR,
-									(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-									errmsg("pgnodemx: missing \":\" in file %s, line %d",
-										   mountinfo, j + 1)));
-
-						len = (p - toks[k]);
-						values[j][c] = pnstrdup(toks[k], len);
-						++c;
-
-						values[j][c] = pstrdup(p + 1);
-						++c;
-					}
-				}
-				else if (strcmp(toks[k], "-") == 0) /* skip until the separator */
-					sep_found = true;
-				else if (sep_found) /* all good, grab the remaining columns */
-				{
-					values[j][c] = pstrdup(toks[k]);
-					++c;
-				}
-			}
-
-			/* make sure we found ncol columns */
-			if (c != ncol)
-				ereport(ERROR,
-						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("pgnodemx: malformed line in file %s, line %d",
-							   mountinfo, j + 1)));
-		}
-	}
-	else
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("pgnodemx: no data in file: %s ", mountinfo)));
-
-	return form_srf(fcinfo, values, nrow, ncol, _4_bigint_6_text_sig);
-}
-
-PG_FUNCTION_INFO_V1(pgnodemx_proc_meminfo);
-Datum
-pgnodemx_proc_meminfo(PG_FUNCTION_ARGS)
-{
-	int			nlines;
-	char	  **lines;
-	int			ncol = 2;
-
-	lines = read_nlsv(meminfo, &nlines);
-	if (nlines > 0)
-	{
-		char	 ***values;
-		int			nrow = nlines;
-		int			i;
-		char	  **fkl;
-
-		values = (char ***) palloc(nrow * sizeof(char **));
-		for (i = 0; i < nrow; ++i)
-		{
-			size_t		len;
-			StringInfo	hbytes = makeStringInfo();
-			int64		nbytes;
-			int			ntok;
-
-			values[i] = (char **) palloc(ncol * sizeof(char *));
-
-			/*
-			 * These lines look like "<key>:_some_spaces_<val>_<unit>
-			 * We usually get back 3 tokens but sometimes 2 (no unit).
-			 * In either case we only have two output columns.
-			 */
-			fkl = parse_ss_line(lines[i], &ntok);
-			if (ntok < 2 || ntok > 3)
-				ereport(ERROR,
-						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
-							   ntok, meminfo, i + 1)));
-
-			/* token 1 will end with an extraneous colon - strip that */
-			len = strlen(fkl[0]) - 1;
-			fkl[0][len] = '\0';
-			values[i][0] = pstrdup(fkl[0]);
-
-			/* reconstruct tok 2 and 3 and then convert to bytes */
-			if (ntok == 3)
-			{
-				appendStringInfo(hbytes, "%s %s", fkl[1], fkl[2]);
-				nbytes = h2b(hbytes->data);
-				values[i][1] = int64_to_string(nbytes);
-			}
-			else
-				values[i][1] = fkl[1];
-		}
-
-		return form_srf(fcinfo, values, nrow, ncol, text_bigint_sig);
-	}
-
-	ereport(ERROR,
-			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-			errmsg("pgnodemx: no lines in file: %s ", meminfo)));
-
-	/* never reached */
-	return (Datum) 0;
-}
-
-PG_FUNCTION_INFO_V1(pgnodemx_fsinfo);
-Datum
-pgnodemx_fsinfo(PG_FUNCTION_ARGS)
-{
-	int		nrow;
-	int		ncol;
-	char ***values;
-	char   *pname = text_to_cstring(PG_GETARG_TEXT_PP(0));
-
-	values = get_statfs_path(pname, &nrow, &ncol);
-	return form_srf(fcinfo, values, nrow, ncol, _2_numeric_text_9_numeric_text_sig);
-}
-
-#define HDR_LINES	2
-PG_FUNCTION_INFO_V1(pgnodemx_network_stats);
-Datum
-pgnodemx_network_stats(PG_FUNCTION_ARGS)
-{
-	int			nrow = 0;
-	int			ncol = 17;
-	char	 ***values = (char ***) palloc(0);
-	char	  **lines;
-	int			nlines;
-
-	/* read /proc/self/net/dev file */
-	lines = read_nlsv(netstat, &nlines);
-
-	/*
-	 * These files have two rows we want to skip at the top.
-	 * Lines of interest are 17 space separated columns.
-	 * First column is the interface name. It has a trailing colon.
-	 * Rest of the columns are bigints.
-	 */
-	if (nlines > HDR_LINES)
-	{
-		int			j;
-		char	  **toks;
-
-		nrow += (nlines - HDR_LINES);
-		values = (char ***) repalloc(values, nrow * sizeof(char **));
-		for (j = HDR_LINES; j < nlines; ++j)
-		{
-
-			size_t		len;
-			int			ntok;
-			int			k;
-
-			values[j - HDR_LINES] = (char **) palloc(ncol * sizeof(char *));
-
-			toks = parse_ss_line(lines[j], &ntok);
-			if (ntok != ncol)
-				ereport(ERROR,
-						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
-							   ntok, netstat, j + 1)));
-
-			/* token 1 will end with an extraneous colon - strip that */
-			len = strlen(toks[0]) - 1;
-			toks[0][len] = '\0';
-			values[j - HDR_LINES][0] = pstrdup(toks[0]);
-
-			/* second through seventeenth columns are rx and tx stats */
-			for (k = 1; k < ncol; ++k)
-				values[j - HDR_LINES][k] = pstrdup(toks[k]);
-		}
-	}
-	else
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				errmsg("pgnodemx: no data in file: %s ", netstat)));
-
-	return form_srf(fcinfo, values, nrow, ncol, text_16_bigint_sig);
 }
 
 PG_FUNCTION_INFO_V1(pgnodemx_kdapi_setof_kv);

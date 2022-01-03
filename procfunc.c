@@ -1,6 +1,6 @@
 /*
  * 
- * SQL functions that allow capture of node OS metrics from PostgreSQL
+ * Functions that allow capture procfs metrics from PostgreSQL
  * Dave Cramer <davecramer@gmail.com>
  * 
  * This code is released under the PostgreSQL license.
@@ -27,7 +27,16 @@
  */
 
 #include "postgres.h"
+
+#include <ctype.h>
+#include <linux/magic.h>
+#include <fcntl.h>
 #include <string.h>
+#include <sys/param.h>
+#include <sys/stat.h>
+#include <sys/vfs.h>
+#include <unistd.h>
+
 #include "fmgr.h"
 #include "funcapi.h"
 #include "miscadmin.h"
@@ -35,251 +44,704 @@
 #include "utils/tuplestore.h"
 #include "storage/fd.h"
 #include "utils/builtins.h"
-#include <sys/vfs.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <sys/param.h>
+
+#include "fileutils.h"
 #include "genutils.h"
 #include "parseutils.h"
 #include "procfunc.h"
+#include "srfsigs.h"
 
-#define FULLCOMM_LEN 1024
-
-#define NUM_COLS 39
-					/* pid INTEGER, comm TEXT, fullcomm TEXT, state TEXT */
-Oid proctab_sig[] = {INT4OID, TEXTOID, TEXTOID, TEXTOID, 
-					/* 4 ppid INTEGER, pgrp INTEGER, session INTEGER, tty_nr INTEGER */
-					INT4OID, INT4OID, INT4OID, INT4OID,
-					/* 8 tpgid INTEGER, flags INTEGER, minflt BIGINT, cminflt BIGINT */
-					INT4OID, INT4OID, INT8OID, INT8OID,
-					/* 12 majflt BIGINT, cmajflt BIGINT, utime BIGINT, stime BIGINT */
-					INT8OID, INT8OID, INT8OID, INT8OID,
-					/* 16 cutime BIGINT, cstime BIGINT, priority BIGINT, nice BIGINT */
-					INT8OID, INT8OID, INT8OID, INT8OID,
-					/* 20 num_threads BIGINT, itrealvalue BIGINT, starttime NUMERIC, vsize BIGINT */
-					INT8OID, INT8OID, NUMERICOID, INT8OID,
-					/* 24 rss NUMERIC, exit_signal INTEGER, processor INTEGER, rt_priority BIGINT */
-					NUMERICOID, INT4OID, INT4OID, INT8OID,
-					/* 28 policy BIGINT, delayacct_blkio_ticks NUMERIC, uid INTEGER, username VARCHAR */
-					INT8OID, NUMERICOID, INT4OID, TEXTOID,
-					/* 32 rchar BIGINT, wchar BIGINT, syscr BIGINT, syscw BIGINT */
-					INT8OID, INT8OID, INT8OID, INT8OID,
-					/* 36 reads BIGINT, writes BIGINT,cwrites BIGINT */
-					INT8OID, INT8OID, INT8OID
-					};
-
-/*
-0 11750 (postmaster) S 1  
-4 11750 11750 0 -1 
-8 4210944 3948 13103 0
-12 0 1 2 3 
-16 5 20 0 1 
-20 0 8242695 296566784 6236 
-24 18446744073709551615 1305 18446744073709551615 4194304 
-28 12252472 140728896963568 0 0 0 
-32 0 4194304 24147974 536871425
-36 0 0 0 17
-40 1 0 0 0
-44 0 0 14352560 14546418 
-41533440 140728896970319 140728896970375 140728896970375 140728896970715 
-0
-*/
-
-Oid cpu_time_sig[] = { INT8OID, INT8OID, INT8OID, INT8OID, INT8OID };
-Oid load_avg_sig[] = { FLOAT8OID, FLOAT8OID, FLOAT8OID, INT4OID };
-
-#define pagetok(x)	((x) * sysconf(_SC_PAGESIZE) >> 10)
-
-enum cputime {i_user, i_nice_c, i_system, i_idle, i_iowait};
-enum loadavg {i_load1, i_load5, i_load15, i_last_pid};
-
-
-Datum pgnodemx_proc_tab(PG_FUNCTION_ARGS);
+Datum pgnodemx_proc_meminfo(PG_FUNCTION_ARGS);
+Datum pgnodemx_fsinfo(PG_FUNCTION_ARGS);
+Datum pgnodemx_network_stats(PG_FUNCTION_ARGS);
+Datum pgnodemx_proctab(PG_FUNCTION_ARGS);
 Datum pgnodemx_proc_cputime(PG_FUNCTION_ARGS);
 Datum pgnodemx_proc_loadavg(PG_FUNCTION_ARGS);
-Datum pgnodemx_proc_disk(PG_FUNCTION_ARGS);
 
-PG_FUNCTION_INFO_V1(pgnodemx_proc_tab);
-PG_FUNCTION_INFO_V1(pgnodemx_proc_cputime);
-PG_FUNCTION_INFO_V1(pgnodemx_proc_loadavg);
-PG_FUNCTION_INFO_V1(pgnodemx_proc_disk);
+static char *get_fullcmd(char *pid);
+static void get_uid_username( char *pid, char **uid, char **username );
 
-Datum pgnodemx_proc_tab(PG_FUNCTION_ARGS)
+/* human readable to bytes */
+#if PG_VERSION_NUM < 90600
+#define h2b(arg1) size_bytes(arg1)
+#else
+#define h2b(arg1) \
+  DatumGetInt64(DirectFunctionCall1(pg_size_bytes, PointerGetDatum(cstring_to_text(arg1))))
+#endif
+
+#define INTEGER_LEN 10
+
+/* various /proc/ source files */
+#define PROCFS "/proc"
+#define diskstats		PROCFS "/diskstats"
+#define mountinfo		PROCFS "/self/mountinfo"
+#define meminfo			PROCFS "/meminfo"
+#define procstat		PROCFS "/stat"
+#define loadavg			PROCFS "/loadavg"
+#define netstat			PROCFS "/self/net/dev"
+#define pidiofmt		PROCFS "/%s/io"
+#define pidcmdfmt		PROCFS "/%s/cmdline"
+#define childpidsfmt	PROCFS "/%d/task/%d/children"
+#define pidstatfmt		PROCFS "/%s/stat"
+
+extern bool proc_enabled;
+
+/*
+ * "/proc" files: these files have all kinds of formats. For now
+ * at least do not try to create generic parsing functions. Just
+ * create a handful of specific access functions for the most
+ * interesting (to us) files.
+ */
+
+/*
+ * Check to see if procfs exists
+ */
+bool
+check_procfs(void)
 {
-	char buffer[256];
-	char **child_pids;
-	int  ntok;
-	int  ncol = 42;
-	pid_t ppid;
-	int nlines;
-	char ***iostat;
+	struct statfs sb;
 
-	char  ***values = (char ***) palloc(0);
+	/* Check if /proc is mounted. */
+	if (statfs(PROCFS, &sb) < 0 || sb.f_type != PROC_SUPER_MAGIC)
+		return false;
+	else
+		return true;
+}
 
-	elog(DEBUG5, "pgnodemx_proc_tab: Entering stored function.");
+/*
+ * /proc/diskstats file:
+ * 
+ *  1 - major number
+ *  2 - minor mumber
+ *  3 - device name
+ *  4 - reads completed successfully
+ *  5 - reads merged
+ *  6 - sectors read
+ *  7 - time spent reading (ms)
+ *  8 - writes completed
+ *  9 - writes merged
+ * 10 - sectors written
+ * 11 - time spent writing (ms)
+ * 12 - I/Os currently in progress
+ * 13 - time spent doing I/Os (ms)
+ * 14 - weighted time spent doing I/Os (ms)
+ * 
+ * Kernel 4.18+ appends four more fields for discard
+ * tracking putting the total at 18:
+ * 
+ * 15 - discards completed successfully
+ * 16 - discards merged
+ * 17 - sectors discarded
+ * 18 - time spent discarding
+ * 
+ * Kernel 5.5+ appends two more fields for flush requests:
+ * 
+ * 19 - flush requests completed successfully
+ * 20 - time spent flushing
+ * 
+ * For now, validate either 14,18, or 20 fields found when
+ * parsing the lines, but only return the first 14. If there
+ * is demand for the other fields at some point, possibly
+ * add them then.
+ */
+PG_FUNCTION_INFO_V1(pgnodemx_proc_diskstats);
+Datum
+pgnodemx_proc_diskstats(PG_FUNCTION_ARGS)
+{
+	int			nrow = 0;
+	int			ncol = 14;
+	char	 ***values = (char ***) palloc(0);
+	char	  **lines;
+	int			nlines;
 
-	/* Get pid of all client connections. */
+	if (!proc_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, bigint_bigint_text_11_bigint_sig);
 
-	ppid = getppid();
-	snprintf(buffer, sizeof(buffer) - 1, "/proc/%d/task/%d/children", ppid, ppid);
-	child_pids = parse_space_sep_val_file(buffer, &ntok);
+	/* read /proc/self/net/dev file */
+	lines = read_nlsv(diskstats, &nlines);
 
-	if (ntok > 0) 
+	/*
+	 * These files have either 14,18, or 20 fields per line.
+	 * We will validate one of those lengths, but only use 14 of the
+	 * space separated columns. The third column is the device name.
+	 * Rest of the columns are bigints.
+	 */
+	if (nlines > 0)
 	{
-		int j;
-		int nchildren = ntok;
-		/* ntok is the number of children pids we will be getting stats for */
-		values = (char ***) repalloc(values, nchildren * sizeof(char **));
-		
-		for (j = 0; j < nchildren; ++j)
+		int			j;
+		char	  **toks;
+
+		nrow = nlines;
+		values = (char ***) repalloc(values, nrow * sizeof(char **));
+		for (j = 0; j < nrow; ++j)
 		{
-			int	 ntok;
-			char **toks;
-			int	 k,l;
-			
-			/* read stats for each child pid */
-			snprintf(buffer, sizeof(buffer) - 1, "/proc/%s/stat", child_pids[j]);
+			int			ntok;
+			int			k;
 
-			toks = parse_space_sep_val_file(buffer, &ntok);
+			values[j] = (char **) palloc(ncol * sizeof(char *));
 
-			if (ntok != 52)
+			toks = parse_ss_line(lines[j], &ntok);
+			if (ntok != 14 && ntok != 18  && ntok != 20)
 				ereport(ERROR,
 						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("pgnodemx: expected %d tokens, got %d in flat keyed file %s, line %d",
-							   ncol, ntok, buffer, j + 1)));
+						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
+							   ntok, diskstats, j + 1)));
 
-			values[j] = (char **) palloc(NUM_COLS * sizeof(char *));
-			
-			for (k = 0, l = 0; k < ncol; ++k) 
+			for (k = 0; k < ncol; ++k)
+				values[j][k] = pstrdup(toks[k]);
+		}
+	}
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: no data in file: %s ", diskstats)));
+
+	return form_srf(fcinfo, values, nrow, ncol, bigint_bigint_text_11_bigint_sig);
+}
+
+/*
+ * 3.5	/proc/<pid>/mountinfo - Information about mounts
+ * --------------------------------------------------------
+ * 
+ * This file contains lines of the form:
+ * 
+ * 36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw,errors=continue
+ * (1)(2)(3)   (4)   (5)      (6)      (7)   (8) (9)   (10)         (11)
+ * 
+ * (1) mount ID:  unique identifier of the mount (may be reused after umount)
+ * (2) parent ID:  ID of parent (or of self for the top of the mount tree)
+ * (3) major:minor:  value of st_dev for files on filesystem
+ * (4) root:  root of the mount within the filesystem
+ * (5) mount point:  mount point relative to the process's root
+ * (6) mount options:  per mount options
+ * (7) optional fields:  zero or more fields of the form "tag[:value]"
+ * (8) separator:  marks the end of the optional fields
+ * (9) filesystem type:  name of filesystem of the form "type[.subtype]"
+ * (10) mount source:  filesystem specific information or "none"
+ * (11) super options:  per super block options
+ * 
+ * Parsers should ignore all unrecognised optional fields.  Currently the
+ * possible optional fields are:
+ * 
+ * shared:X  mount is shared in peer group X
+ * master:X  mount is slave to peer group X
+ * propagate_from:X  mount is slave and receives propagation from peer group X (*)
+ * unbindable  mount is unbindable
+ * --------------------------------------------------------
+ * 
+ * Map fields 1 - 6, skip 7 (one or more) and 8, map 9 - 11 to a virtual
+ * table with 10 columns (split major:minor into two columns)
+ */
+PG_FUNCTION_INFO_V1(pgnodemx_proc_mountinfo);
+Datum
+pgnodemx_proc_mountinfo(PG_FUNCTION_ARGS)
+{
+	int			nrow = 0;
+	int			ncol = 10;
+	char	 ***values = (char ***) palloc(0);
+	char	  **lines;
+	int			nlines;
+
+	if (!proc_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, _4_bigint_6_text_sig);
+
+	/* read /proc/self/net/dev file */
+	lines = read_nlsv(mountinfo, &nlines);
+
+	/*
+	 * These files are complicated - see above.
+	 */
+	if (nlines > 0)
+	{
+		int			j;
+		char	  **toks;
+
+		nrow = nlines;
+		values = (char ***) repalloc(values, nrow * sizeof(char **));
+		for (j = 0; j < nrow; ++j)
+		{
+			int			ntok;
+			int			k;
+			int			c = 0;
+			bool		sep_found = false;
+
+			values[j] = (char **) palloc(ncol * sizeof(char *));
+
+			toks = parse_ss_line(lines[j], &ntok);
+			/* there shoould be at least 10 tokens */
+			if (ntok < 10)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
+							   ntok, mountinfo, j + 1)));
+
+			/* iterate all found columns and keep the ones we want */
+			for (k = 0; k < ntok; ++k)
 			{
-				if ( k == 1 )
+				/* grab the first 6 columns */
+				if (k < 6)
 				{
-					/* strip () from the cmd */
-					int len = strlen(toks[k]);
-					char *cmd = palloc( len * sizeof (char) );
-					char *dest = cmd;
-					char *src = toks[k];
-					while( *src != '\0')
+					if (k != 2)
 					{
-						if (*src == '(') 
-						{	src++;
-							continue;
-						}
-						else if (*src == ')')
-						{	*cmd = '\0';
-							break;
-						}
-						*cmd++ = *src++;	
+						values[j][c] = pstrdup(toks[k]);
+						++c;
 					}
-					values[j][l++] = dest;
+					else
+					{
+						/* split major:minor into two columns */
+						char   *p = strchr(toks[k], ':');
+						Size	len;
+
+						if (!p)
+							ereport(ERROR,
+									(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+									errmsg("pgnodemx: missing \":\" in file %s, line %d",
+										   mountinfo, j + 1)));
+
+						len = (p - toks[k]);
+						values[j][c] = pnstrdup(toks[k], len);
+						++c;
+
+						values[j][c] = pstrdup(p + 1);
+						++c;
+					}
 				}
-				else if ( k == 2 ) 
+				else if (strcmp(toks[k], "-") == 0) /* skip until the separator */
+					sep_found = true;
+				else if (sep_found) /* all good, grab the remaining columns */
 				{
-					/* need to get long version of command line here */
-					values[j][l++] = get_fullcmd(child_pids[j]);
-					/* need to add status */
-					values[j][l++] = pstrdup(toks[k]);
-				}
-				else if ( k == 24 )
-					/* rss in pages */
-					values[j][l++] = pstrdup( get_rss(toks[k]) );
-				else if ( k > 24 && k <= 37 )
-					/* skip these values */
-					continue;
-				else 	
-				{
-					elog(DEBUG1, "values[%d] == %s ",l, toks[k]);
-					values[j][l++] = pstrdup(toks[k]);
+					values[j][c] = pstrdup(toks[k]);
+					++c;
 				}
 			}
-			get_uid_username( child_pids[j], &values[j][l], &values[j][l+1] );
-			l = l+2;
 
-			snprintf(buffer, sizeof(buffer) - 1, "%s/%s/io", PROCFS, child_pids[j]);
-			
-			iostat = read_kv_file(buffer, &nlines);
-
-			if ( nlines != 7)
+			/* make sure we found ncol columns */
+			if (c != ncol)
 				ereport(ERROR,
 						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("pgnodemx: expected %d tokens, got %d in keyed file %s, pid %d",
-							   7, nlines, buffer, j + 1)));
+						errmsg("pgnodemx: malformed line in file %s, line %d",
+							   mountinfo, j + 1)));
+		}
+	}
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: no data in file: %s ", mountinfo)));
 
-			for (int i = 0; i < 7 ; i++ )
+	return form_srf(fcinfo, values, nrow, ncol, _4_bigint_6_text_sig);
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_proc_meminfo);
+Datum
+pgnodemx_proc_meminfo(PG_FUNCTION_ARGS)
+{
+	int			nlines;
+	char	  **lines;
+	int			ncol = 2;
+
+	if (!proc_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, text_bigint_sig);
+
+	lines = read_nlsv(meminfo, &nlines);
+	if (nlines > 0)
+	{
+		char	 ***values;
+		int			nrow = nlines;
+		int			i;
+		char	  **fkl;
+
+		values = (char ***) palloc(nrow * sizeof(char **));
+		for (i = 0; i < nrow; ++i)
+		{
+			size_t		len;
+			StringInfo	hbytes = makeStringInfo();
+			int64		nbytes;
+			int			ntok;
+
+			values[i] = (char **) palloc(ncol * sizeof(char *));
+
+			/*
+			 * These lines look like "<key>:_some_spaces_<val>_<unit>
+			 * We usually get back 3 tokens but sometimes 2 (no unit).
+			 * In either case we only have two output columns.
+			 */
+			fkl = parse_ss_line(lines[i], &ntok);
+			if (ntok < 2 || ntok > 3)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
+							   ntok, meminfo, i + 1)));
+
+			/* token 1 will end with an extraneous colon - strip that */
+			len = strlen(fkl[0]) - 1;
+			fkl[0][len] = '\0';
+			values[i][0] = pstrdup(fkl[0]);
+
+			/* reconstruct tok 2 and 3 and then convert to bytes */
+			if (ntok == 3)
 			{
-				values[j][l++] = pstrdup(iostat[i][1]);
+				appendStringInfo(hbytes, "%s %s", fkl[1], fkl[2]);
+				nbytes = h2b(hbytes->data);
+				values[i][1] = int64_to_string(nbytes);
+			}
+			else
+				values[i][1] = fkl[1];
+		}
+
+		return form_srf(fcinfo, values, nrow, ncol, text_bigint_sig);
+	}
+
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pgnodemx: no lines in file: %s ", meminfo)));
+
+	/* never reached */
+	return (Datum) 0;
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_fsinfo);
+Datum
+pgnodemx_fsinfo(PG_FUNCTION_ARGS)
+{
+	int		nrow;
+	int		ncol;
+	char ***values;
+	char   *pname = text_to_cstring(PG_GETARG_TEXT_PP(0));
+
+	if (!proc_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, _2_numeric_text_9_numeric_text_sig);
+
+	values = get_statfs_path(pname, &nrow, &ncol);
+	return form_srf(fcinfo, values, nrow, ncol, _2_numeric_text_9_numeric_text_sig);
+}
+
+#define HDR_LINES	2
+PG_FUNCTION_INFO_V1(pgnodemx_network_stats);
+Datum
+pgnodemx_network_stats(PG_FUNCTION_ARGS)
+{
+	int			nrow = 0;
+	int			ncol = 17;
+	char	 ***values = (char ***) palloc(0);
+	char	  **lines;
+	int			nlines;
+
+	if (!proc_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, text_16_bigint_sig);
+
+	/* read /proc/self/net/dev file */
+	lines = read_nlsv(netstat, &nlines);
+
+	/*
+	 * These files have two rows we want to skip at the top.
+	 * Lines of interest are 17 space separated columns.
+	 * First column is the interface name. It has a trailing colon.
+	 * Rest of the columns are bigints.
+	 */
+	if (nlines > HDR_LINES)
+	{
+		int			j;
+		char	  **toks;
+
+		nrow += (nlines - HDR_LINES);
+		values = (char ***) repalloc(values, nrow * sizeof(char **));
+		for (j = HDR_LINES; j < nlines; ++j)
+		{
+
+			size_t		len;
+			int			ntok;
+			int			k;
+
+			values[j - HDR_LINES] = (char **) palloc(ncol * sizeof(char *));
+
+			toks = parse_ss_line(lines[j], &ntok);
+			if (ntok != ncol)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: unexpected number of tokens, %d, in file %s, line %d",
+							   ntok, netstat, j + 1)));
+
+			/* token 1 will end with an extraneous colon - strip that */
+			len = strlen(toks[0]) - 1;
+			toks[0][len] = '\0';
+			values[j - HDR_LINES][0] = pstrdup(toks[0]);
+
+			/* second through seventeenth columns are rx and tx stats */
+			for (k = 1; k < ncol; ++k)
+				values[j - HDR_LINES][k] = pstrdup(toks[k]);
+		}
+	}
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: no data in file: %s ", netstat)));
+
+	return form_srf(fcinfo, values, nrow, ncol, text_16_bigint_sig);
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_proc_pid_io);
+Datum pgnodemx_proc_pid_io(PG_FUNCTION_ARGS)
+{
+	int			nrow = 0;
+	int			ncol = 8;
+	char	  **child_pids;
+	pid_t		ppid;
+	char	 ***values = (char ***) palloc(0);
+	StringInfo	fname = makeStringInfo();
+
+	if (!proc_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, int_7_numeric_sig);
+
+	/* Get pid of all client connections. */
+	ppid = getppid();
+	appendStringInfo(fname, childpidsfmt, ppid, ppid);
+	/* read /proc/<ppid>/task/<ppid>/children file */
+	child_pids = parse_space_sep_val_file(fname->data, &nrow);
+
+	if (nrow > 0)
+	{
+		int j;
+
+		/* nrow is the number of child pids we will be getting stats for */
+		values = (char ***) repalloc(values, nrow * sizeof(char **));
+
+		/* iterate through child pids */
+		for (j = 0; j < nrow; ++j)
+		{
+			int		nlines;
+			char ***iostat;
+			int		i;
+			int		k = 0;
+
+			values[j] = (char **) palloc(ncol * sizeof(char *));
+
+			/* read io for current child pid */
+			resetStringInfo(fname);
+			appendStringInfo(fname, pidiofmt, child_pids[j]);
+			/* read "/proc/<child-pid>/io file" */
+			iostat = read_kv_file(fname->data, &nlines);
+
+			if (nlines != ncol - 1)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: expected %d tokens, got %d in keyed file %s",
+							   ncol - 1, nlines, fname->data)));
+
+			/* inject the current child pid number as first column */
+			values[j][k++] = pstrdup(child_pids[j]);
+			for (i = 0; i < nlines ; i++ )
+			{
+				/*
+				 * We only care about the values, not the keys
+				 * because each key gets its own column in the
+				 * output.
+				 */
+				values[j][k++] = pstrdup(iostat[i][1]);
 			}
 		}
 
-		return form_srf(fcinfo, values, nchildren, NUM_COLS, proctab_sig);
+		return form_srf(fcinfo, values, nrow, ncol, int_7_numeric_sig);
 	}
 	ereport(ERROR,
 			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-			errmsg("pgnodemx: no lines in flat keyed file: %s ", buffer)));
+			errmsg("pgnodemx: no lines in flat keyed file: %s ", fname->data)));
+
+	/* never reached */
+	return (Datum) 0;
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_proc_pid_cmdline);
+Datum pgnodemx_proc_pid_cmdline(PG_FUNCTION_ARGS)
+{
+	int			nrow = 0;
+	int			ncol = 4;
+	char	  **child_pids;
+	pid_t		ppid;
+	char	 ***values = (char ***) palloc(0);
+	StringInfo	fname = makeStringInfo();
+
+	if (!proc_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, int_text_int_text_sig);
+
+	/* Get pid of all client connections. */
+	ppid = getppid();
+	appendStringInfo(fname, childpidsfmt, ppid, ppid);
+	/* read /proc/<ppid>/task/<ppid>/children file */
+	child_pids = parse_space_sep_val_file(fname->data, &nrow);
+
+	if (nrow > 0)
+	{
+		int j;
+
+		/* nrow is the number of child pids we will be getting stats for */
+		values = (char ***) repalloc(values, nrow * sizeof(char **));
+
+		/* iterate through child pids */
+		for (j = 0; j < nrow; ++j)
+		{
+			char   *uid;
+			char   *username;
+
+			values[j] = (char **) palloc(ncol * sizeof(char *));
+
+			/* inject the current child pid number as first column */
+			values[j][0] = pstrdup(child_pids[j]);
+
+			/* full command line as second column */
+			values[j][1] = get_fullcmd(child_pids[j]);
+
+			/* get uid and username for process */
+			get_uid_username(child_pids[j], &uid, &username);
+			values[j][2] = pstrdup(uid);
+			values[j][3] = pstrdup(username);
+		}
+
+		return form_srf(fcinfo, values, nrow, ncol, int_text_int_text_sig);
+	}
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pgnodemx: no lines in space separated file: %s ", fname->data)));
+
+	/* never reached */
+	return (Datum) 0;
+}
+
+PG_FUNCTION_INFO_V1(pgnodemx_proc_pid_stat);
+Datum pgnodemx_proc_pid_stat(PG_FUNCTION_ARGS)
+{
+	int			nrow = 0;
+	int			ncol = 52;
+	char	  **child_pids;
+	pid_t		ppid;
+	char	 ***values = (char ***) palloc(0);
+	StringInfo	fname = makeStringInfo();
+
+	if (!proc_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, proc_pid_stat_sig);
+
+	/* Get pid of all client connections. */
+	ppid = getppid();
+	appendStringInfo(fname, childpidsfmt, ppid, ppid);
+	/* read /proc/<ppid>/task/<ppid>/children file */
+	child_pids = parse_space_sep_val_file(fname->data, &nrow);
+
+	if (nrow > 0)
+	{
+		int j;
+
+		/* nrow is the number of child pids we will be getting stats for */
+		values = (char ***) repalloc(values, nrow * sizeof(char **));
+
+		/* iterate through child pids */
+		for (j = 0; j < nrow; ++j)
+		{
+			int		ntok;
+			char  **toks;
+			int		k;
+			char   *rawstr;
+			char   *line;
+			char   *ptr1;
+			char   *ptr2;
+			int		ch1 = '(';
+			int		ch2 = ')';
+
+			/* read stats for current child pid */
+			resetStringInfo(fname);
+			appendStringInfo(fname, pidstatfmt, child_pids[j]);
+			/* read "/proc/<child-pid>/stat file" */
+			rawstr = get_string_from_file(fname->data);
+
+			/*
+			 * Find the end of the first two fields, and 
+			 * advance line pointer to correct position in rawstr
+			 * for the rest. While at it, also find the first "("
+			 */
+ 
+			/* Find start position of the command string */
+			ptr1 = strchr(rawstr, ch1 );
+ 
+			/* Find end position of the command string */
+			ptr2 = strrchr(rawstr, ch2 );
+
+			/*
+			 * The rest of the line starts 2 bytes after
+			 * the command ending parenthesis
+			 */
+			line = ptr2 + 2;
+
+			/* parse the rest */
+			toks = parse_ss_line(line, &ntok);
+
+			/* there should be two columns less in the parsed rest-of-line */
+			if ((ntok + 2) != ncol)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: expected %d tokens, got %d in space separated file %s",
+							   ncol, ntok + 2, fname->data)));
+
+			values[j] = (char **) palloc(ncol * sizeof(char *));
+			
+			for (k = 0; k < ncol; ++k) 
+			{
+				if ( k == 0 ) 
+				{
+					char   *p = ptr1 - 1;
+
+					/*
+					 * first column starts at 0 and goes through
+					 * ptr1 - 1
+					 */
+					p[0] = '\0';
+					values[j][k] = pstrdup(rawstr);
+				}
+				else if ( k == 1 ) 
+				{
+					char   *p = ptr1 + 1;
+
+					/*
+					 * second column (command) is everything inbetween
+					 * ptr1 + 1 to ptr2 (which should be a NULL terminator)
+					 */
+					ptr2[0] = '\0';
+					values[j][k] = pstrdup(p);
+				}
+				else 	
+					values[j][k] = pstrdup(toks[k - 2]);
+			}
+		}
+
+		return form_srf(fcinfo, values, nrow, ncol, proc_pid_stat_sig);
+	}
+	ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("pgnodemx: no lines in flat keyed file: %s ", fname->data)));
 
 	/* never reached */
 	return (Datum) 0;
 }
 
 /*
-	returns full command line of pid otherwise NULL
-*/
-char *get_fullcmd(char *pid)
+ * Returns full command line of a postgres pid
+ * 
+ * Note that this would not work with pids in general
+ * because the /proc/pid/cmdline file typically separates
+ * the command line options using NULL bytes ('\0'). But
+ * for postgres they are rewritten as full strings for
+ * clear ps output.
+ */
+static char *
+get_fullcmd(char *pid)
 {
-	char buffer[256];
-	int fd = -1;
-	int len;
+	StringInfo	fname = makeStringInfo();
 
-	/* Get the full command line information. */
-	snprintf(buffer, sizeof(buffer) - 1, "%s/%s/cmdline", PROCFS, pid);
-	fd = open(buffer, O_RDONLY);
-	if (fd == -1)
-	{
-		elog(ERROR, "'%s' not found", buffer);
-		return NULL;
-	}
-	else
-	{
-		char *full_cmd = (char *) palloc((FULLCOMM_LEN + 1) * sizeof(char));
-		len = read(fd, full_cmd, FULLCOMM_LEN);
-		close(fd);
-		full_cmd[len] = '\0';
-		return full_cmd;
-	}
-	return NULL;
+	/* calculate filename of interest */
+	appendStringInfo(fname, pidcmdfmt, pid);
+
+	/* read /proc/<ppid>/cmdline file */
+	return get_string_from_file(fname->data);
 }
 
-char *get_rss(char *rss)
-{
-	char *rss_str = palloc(256 * sizeof(char));
-	snprintf(rss_str, (256 * sizeof(char)) -1, "%lld", pagetok(atoll(rss)) );
-	return rss_str;
-}
-
-char ***read_kv_file( char *fname, int *nlines )
-{
-	char **lines = read_nlsv(fname, nlines);	
-	if (nlines > 0)
-	{
-		char	 ***values;
-		int		 nrow = *nlines;
-		int		 i;
-
-		values = (char ***) palloc(nrow * sizeof(char **));
-		for (i = 0; i < nrow; ++i)
-		{
-			int	ntok;
-
-			values[i] = parse_ss_line(lines[i], &ntok);
-		
-		}
-		return values;
-	}
-	return NULL;
-}
-
-void
+static void
 get_uid_username( char *pid, char **uid, char **username )
 {
 	struct stat stat_struct;
@@ -308,100 +770,71 @@ get_uid_username( char *pid, char **uid, char **username )
 	}
 }
 
+PG_FUNCTION_INFO_V1(pgnodemx_proc_cputime);
 Datum pgnodemx_proc_cputime(PG_FUNCTION_ARGS)
 {
-	char **values = NULL;
-	struct statfs sb;
-	char buffer[4096];
-	char **lines;
-	int nlines;
-	char **tokens;
-	int ntok;
+	int			nrow = 1;
+	int			ncol = 5;
+	char	 ***values = (char ***) palloc(0);
+	char	  **lines;
+	int			nlines;
+	char	  **tokens;
+	int			ntok;
 
-	elog(DEBUG5, "pgnodemx_proc_cputime: Entering stored function.");
+	if (!proc_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, _5_bigint_sig);
 
-	/* Check if /proc is mounted. */
-	if (statfs(PROCFS, &sb) < 0 || sb.f_type != PROC_SUPER_MAGIC)
-	{
-		elog(ERROR, "proc filesystem not mounted on " PROCFS "\n");
-		/* never reached */
-		return (Datum)0;
-	}
-
-	snprintf(buffer, sizeof(buffer) - 1, "%s/stat", PROCFS);
-	lines = read_nlsv(buffer, &nlines);
-
-	elog(DEBUG5, "pgnodemx_proc_cputime: %s", lines[0]);
+	lines = read_nlsv(procstat, &nlines);
+	/* currently only interested in the first part of the first line */
+	if (nlines < 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: got too few lines in file %s", procstat)));
 
 	tokens = parse_ss_line(lines[0], &ntok);
+	if (ntok < (ncol + 1))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: got too few values in file %s", procstat)));
 
-	values = (char **) palloc(5 * sizeof(char *));
+	values = (char ***) repalloc(values, nrow * sizeof(char **));
+	values[0] = (char **) palloc(ncol * sizeof(char *));
+	values[0][0] = pstrdup(tokens[1]);
+	values[0][1] = pstrdup(tokens[2]);
+	values[0][2] = pstrdup(tokens[3]); 
+	values[0][3] = pstrdup(tokens[4]);
+	values[0][4] = pstrdup(tokens[5]);
 
-	values[i_user] = pstrdup(tokens[1]);
-	values[i_nice_c] = pstrdup(tokens[2]);
-	values[i_system] = pstrdup(tokens[3]); 
-	values[i_idle] = pstrdup(tokens[4]);
-	values[i_iowait] = pstrdup(tokens[5]);
-
-	elog(DEBUG5, "pgnodemx_proc_cputime: [%d] user = %s", (int) i_user, values[i_user]);
-	elog(DEBUG5, "pgnodemx_proc_cputime: [%d] nice = %s", (int) i_nice_c, values[i_nice_c]);
-	elog(DEBUG5, "pgnodemx_proc_cputime: [%d] system = %s", (int) i_system,
-			values[i_system]);
-	elog(DEBUG5, "pgnodemx_proc_cputime: [%d] idle = %s", (int) i_idle, values[i_idle]);
-	elog(DEBUG5, "pgnodemx_proc_cputime: [%d] iowait = %s", (int) i_iowait,
-			values[i_iowait]);
-
-	return form_srf(fcinfo, &values, 1, 5, cpu_time_sig);
-
+	return form_srf(fcinfo, values, nrow, ncol, _5_bigint_sig);
 }
 
+PG_FUNCTION_INFO_V1(pgnodemx_proc_loadavg);
 Datum pgnodemx_proc_loadavg(PG_FUNCTION_ARGS)
 {
-	char **values = NULL;
-	struct statfs sb;
-	char buffer[4096];
-	char **lines;
-	int nlines;
-	char **tokens;
-	int ntok;
+	int			nrow = 1;
+	int			ncol = 4;
+	char	 ***values = (char ***) palloc(0);
+	char	   *rawstr;
+	char	  **tokens;
+	int			ntok;
 
-	elog(DEBUG5, "pgnodemx_proc_loadavg: Entering stored function.");
+	if (!proc_enabled)
+		return form_srf(fcinfo, NULL, 0, ncol, load_avg_sig);
 
-	values = (char **) palloc(4 * sizeof(char *));
-	
-	/* Check if /proc is mounted. */
-	if (statfs(PROCFS, &sb) < 0 || sb.f_type != PROC_SUPER_MAGIC)
-	{
-		elog(ERROR, "proc filesystem not mounted on " PROCFS "\n");
-		/* never reached */
-		return (Datum)0;
-	}
+	rawstr = read_one_nlsv(loadavg);
+	tokens = parse_ss_line(rawstr, &ntok);
+	if (ntok < (ncol + 1))
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				errmsg("pgnodemx: got too few values in file %s", loadavg)));
 
-	snprintf(buffer, sizeof(buffer) - 1, "%s/loadavg", PROCFS);
-	lines = read_nlsv(buffer, &nlines);
-
-	elog(DEBUG5, "pgnodemx_proc_loadavg: %s", buffer);
-
-	tokens = parse_ss_line(lines[0], &ntok);
-
-	values = (char **) palloc(4 * sizeof(char *));
-
-	values[i_load1] = pstrdup(tokens[0]);
-	values[i_load5] = pstrdup(tokens[1]);
-	values[i_load15] = pstrdup(tokens[2]); 
+	values = (char ***) repalloc(values, nrow * sizeof(char **));
+	values[0] = (char **) palloc(ncol * sizeof(char *));
+	values[0][0] = pstrdup(tokens[0]);
+	values[0][1] = pstrdup(tokens[1]);
+	values[0][2] = pstrdup(tokens[2]); 
 	/* skip running/tasks */
-	values[i_last_pid] = pstrdup(tokens[4]);
+	values[0][3] = pstrdup(tokens[4]);
 
-	elog(DEBUG5, "pgnodemx_proc_loadavg: [%d] load1 = %s", (int) i_load1,
-			values[i_load1]);
-	elog(DEBUG5, "pgnodemx_proc_loadavg: [%d] load5 = %s", (int) i_load5,
-			values[i_load5]);
-	elog(DEBUG5, "pgnodemx_proc_loadavg: [%d] load15 = %s", (int) i_load15,
-			values[i_load15]);
-	elog(DEBUG5, "pgnodemx_proc_loadavg: [%d] last_pid = %s", (int) i_last_pid,
-			values[i_last_pid]);
-
-	return form_srf(fcinfo, &values, 1, 4, load_avg_sig);
-
+	return form_srf(fcinfo, values, nrow, ncol, load_avg_sig);
 }
-

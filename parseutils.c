@@ -623,3 +623,43 @@ parse_space_sep_val_file(char *ftr, int *nvals)
 
 	return values;
 }
+
+/*
+ * Parse a "key value" virtual file.
+ * 
+ * Must be one or more lines with 2 tokens separated by a space.
+ * Returns tokens as array of strings, and number of tokens
+ * found in nlines.
+ * 
+ * Currently makes no attempt to strip a trailing character from
+ * the "key". Possibly that should be added later.
+ */
+char ***
+read_kv_file(char *fname, int *nlines)
+{
+	char **lines = read_nlsv(fname, nlines);	
+
+	if (nlines > 0)
+	{
+		char ***values;
+		int		nrow = *nlines;
+		int		ncol = 2;
+		int		i;
+
+		values = (char ***) palloc(nrow * sizeof(char **));
+		for (i = 0; i < nrow; ++i)
+		{
+			int	ntok;
+
+			values[i] = parse_ss_line(lines[i], &ntok);
+			/* line should have exactly ncol tokens */
+			if (ntok != ncol)
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("pgnodemx: incorrect format for key value line"),
+						errdetail("pgnodemx: expected 2 tokens, found %d, file %s", ntok, fname)));
+		}
+		return values;
+	}
+	return NULL;
+}

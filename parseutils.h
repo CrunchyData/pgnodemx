@@ -48,5 +48,6 @@ extern int64 get_int64_from_file(char *ftr);
 extern double get_double_from_file(char *ftr);
 extern char *get_string_from_file(char *ftr);
 extern char **parse_space_sep_val_file(char *filename, int *nvals);
+extern char ***read_kv_file(char *fname, int *nlines);
 
 #endif	/* PARSEUTILS_H */
