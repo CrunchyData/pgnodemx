@@ -81,3 +81,70 @@ SELECT *
 FROM proc_mountinfo() m
 JOIN proc_diskstats() d USING (major_number, minor_number)
 JOIN fsinfo(current_setting('data_directory')) f USING (major_number, minor_number);
+
+SELECT "user", nice, system, idle, iowait
+FROM proc_cputime();
+
+SELECT load1, load5, load15, last_pid
+FROM proc_loadavg();
+
+WITH m (key,val) AS
+(
+  SELECT key, val
+  FROM proc_meminfo()
+)
+SELECT
+  ((SELECT val FROM m WHERE key = 'MemTotal') - (SELECT val FROM m WHERE key = 'MemFree')) / 1024 as memused,
+  (SELECT val FROM m WHERE key = 'MemFree') / 1024 AS memfree,
+  (SELECT val FROM m WHERE key = 'Shmem') / 1024 AS memshared,
+  (SELECT val FROM m WHERE key = 'Buffers') / 1024 AS membuffers,
+  (SELECT val FROM m WHERE key = 'Cached') / 1024 AS memcached,
+  ((SELECT val FROM m WHERE key = 'SwapTotal') - (SELECT val FROM m WHERE key = 'SwapFree')) / 1024 AS swapused,
+  (SELECT val FROM m WHERE key = 'SwapFree') / 1024 AS swapfree,
+  (SELECT val FROM m WHERE key = 'SwapCached') / 1024 as swapcached;
+
+SELECT
+  s.pid,
+  comm,
+  fullcomm,
+  state,
+  ppid,
+  pgrp,
+  session,
+  tty_nr,
+  tpgid,
+  flags,
+  minflt,
+  cminflt,
+  majflt,
+  cmajflt,
+  utime,
+  stime,
+  cutime,
+  cstime,
+  priority,
+  nice,
+  num_threads,
+  itrealvalue,
+  starttime,
+  vsize,
+  kpages_to_bytes(rss) / 1024 as rss,
+  exit_signal,
+  processor,
+  rt_priority,
+  policy,
+  delayacct_blkio_ticks,
+  uid,
+  username,
+  rchar,
+  wchar,
+  syscr,
+  syscw,
+  reads,
+  writes,
+  cwrites
+FROM proc_pid_stat() s
+JOIN proc_pid_cmdline() c
+ON s.pid = c.pid
+JOIN proc_pid_io() i
+ON c.pid = i.pid;
