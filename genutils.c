@@ -30,6 +30,8 @@
 
 #include "postgres.h"
 
+#include <unistd.h>
+
 #if PG_VERSION_NUM >= 110000
 #include "catalog/pg_collation_d.h"
 #include "catalog/pg_type_d.h"
@@ -745,3 +747,19 @@ pg_ulltoa_n(uint64 value, char *a)
 }
 
 #endif /* PG_VERSION_NUM < 130000 */
+
+/*
+ * Convert number of kernel pages to size in bytes
+ */
+PG_FUNCTION_INFO_V1(pgnodemx_pages_to_bytes);
+Datum
+pgnodemx_pages_to_bytes(PG_FUNCTION_ARGS)
+{
+	Numeric		num1 = PG_GETARG_NUMERIC(0);
+	Numeric		num2  = int64_to_numeric(sysconf(_SC_PAGESIZE));
+	Numeric		res;
+
+	res = numeric_mul_opt_error(num1, num2, NULL);
+
+	PG_RETURN_NUMERIC(res);
+}
