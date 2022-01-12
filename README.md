@@ -163,7 +163,7 @@ SELECT * FROM pg_diskusage();
 SELECT * FROM pg_proctab();
 ```
 
-These functions are not installed by default. They may be installed by executing the pg_proctab_compat.sql script.
+These functions are not installed by default. They may be installed by installing pg_proctab VERSION "0.0.9-compat" after installing the pgnodemx extension.
 
 ## System Information Related Functions
 
