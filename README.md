@@ -153,11 +153,13 @@ SELECT * FROM proc_loadavg();
 
 ## pg_proctab Compatibility Functions for use with pg_top
 
-Four functions are provided in a script that match the SQL interface presented by the pg_proctab extension.
+Five functions are provided in an extension that match the SQL interface presented by the pg_proctab extension.
 ```
+CREATE EXTENSION pg_proctab VERSION "0.0.9-compat";
 SELECT * FROM pg_cputime();
 SELECT * FROM pg_loadavg();
 SELECT * FROM pg_memusage();
+SELECT * FROM pg_diskusage();
 SELECT * FROM pg_proctab();
 ```
 

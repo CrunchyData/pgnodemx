@@ -1,3 +1,8 @@
+/* contrib/pgnodemx/pg_proctab--0.0.9-compat.sql */
+
+-- complain if script is sourced in psql, rather than via CREATE EXTENSION
+\echo Use "CREATE EXTENSION pg_proctab VERSION 0.0.9-compat" to load this file. \quit
+
 /*
  * Functions to provide a pg_proctab compatible interface.
  * The hope is that this will allow pgnodemx to work with
@@ -148,4 +153,39 @@ AS $$
  ON s.pid = c.pid
  JOIN proc_pid_io() i
  ON c.pid = i.pid
+$$ LANGUAGE sql;
+
+CREATE OR REPLACE FUNCTION pg_diskusage (
+        OUT major smallint,
+        OUT minor smallint,
+        OUT devname text,
+        OUT reads_completed bigint,
+        OUT reads_merged bigint,
+        OUT sectors_read bigint,
+        OUT readtime bigint,
+        OUT writes_completed bigint,
+        OUT writes_merged bigint,
+        OUT sectors_written bigint,
+        OUT writetime bigint,
+        OUT current_io bigint,
+        OUT iotime bigint,
+        OUT totaliotime bigint)
+RETURNS SETOF record
+AS $$
+ SELECT
+  major_number AS major,
+  minor_number AS minor,
+  device_name AS devname,
+  reads_completed_successfully AS reads_completed,
+  reads_merged AS reads_merged,
+  sectors_read AS sectors_read,
+  time_spent_reading_ms AS readtime,
+  writes_completed AS writes_completed,
+  writes_merged AS writes_merged,
+  sectors_written AS sectors_written,
+  time_spent_writing_ms AS writetime,
+  ios_currently_in_progress AS current_io,
+  time_spent_doing_ios_ms AS iotime,
+  weighted_time_spent_doing_ios_ms AS totaliotime
+ FROM proc_diskstats()
 $$ LANGUAGE sql;
