@@ -57,6 +57,17 @@
 
 static int guc_var_compare(const void *a, const void *b);
 static int guc_name_compare(const char *namea, const char *nameb);
+
+#if PG_VERSION_NUM < 140000
+static Numeric
+int64_to_numeric(int64 v)
+{
+        Datum           d = Int64GetDatum(v);
+
+        return DatumGetNumeric(DirectFunctionCall1(int8_numeric, d));
+}
+#endif /* PG_VERSION_NUM < 140000 */
+
 #if PG_VERSION_NUM < 130000
 /*
  * A table of all two-digit numbers. This is used to speed up decimal digit
