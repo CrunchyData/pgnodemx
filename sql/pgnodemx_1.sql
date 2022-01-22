@@ -148,3 +148,5 @@ JOIN proc_pid_cmdline() c
 ON s.pid = c.pid
 JOIN proc_pid_io() i
 ON c.pid = i.pid;
+
+SELECT exec_path(), * FROM stat_file(exec_path());
