@@ -179,6 +179,11 @@ SELECT fips_mode();
 ```
 * Returns TRUE if openssl is currently running in FIPS mode, otherwise FALSE.
 
+### Get openssl version string
+```
+select openssl_version();
+```
+
 ### Get source C library path for a function symbol
 ```
 SELECT symbol_filename(sym_name text);

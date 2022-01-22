@@ -679,6 +679,20 @@ pgnodemx_fips_mode(PG_FUNCTION_ARGS)
 #endif
 }
 
+PG_FUNCTION_INFO_V1(pgnodemx_openssl_version);
+Datum
+pgnodemx_openssl_version(PG_FUNCTION_ARGS)
+{
+	/* Limit use to members of special role */
+	pgnodemx_check_role();
+
+#ifdef USE_OPENSSL
+	PG_RETURN_TEXT_P(cstring_to_text(OpenSSL_version(OPENSSL_VERSION)));
+#else
+	PG_RETURN_NULL();
+#endif
+}
+
 PG_FUNCTION_INFO_V1(pgnodemx_symbol_filename);
 Datum
 pgnodemx_symbol_filename(PG_FUNCTION_ARGS)
