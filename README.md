@@ -227,6 +227,11 @@ SELECT pgnodemx_version();
 SELECT exec_path();
 ```
 
+### Get uid, username, gid, groupname, and filemode for a file
+```
+SELECT * FROM stat_file(filename);
+```
+
 ## Configuration
 
 * Add pgnodemx to shared_preload_libraries in postgresql.conf.
