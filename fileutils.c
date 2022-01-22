@@ -189,7 +189,7 @@ pgnodemx_check_role(void)
  * is_member_of_role does not play nice with shared_preload_libraries.
  */
 char *
-convert_and_check_filename(text *arg)
+convert_and_check_filename(text *arg, bool allow_abs)
 {
 	char	   *filename;
 
@@ -200,7 +200,7 @@ convert_and_check_filename(text *arg)
 	canonicalize_path(filename);	/* filename can change length here */
 
 	/* Disallow absolute paths */
-	if (is_absolute_path(filename))
+	if (!allow_abs && is_absolute_path(filename))
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("reference to absolute path not allowed")));

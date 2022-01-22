@@ -44,5 +44,6 @@ extern Oid int_7_numeric_sig[];
 extern Oid int_text_int_text_sig[];
 extern Oid load_avg_sig[];
 extern Oid proc_pid_stat_sig[];
+extern Oid num_text_num_2_text_sig[];
 
 #endif /* _SRFSIGS_H_ */

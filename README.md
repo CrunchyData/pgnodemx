@@ -222,6 +222,11 @@ SELECT pgnodemx_version();
 * Otherwise returns the value of the short git hash
 * If not compiling from the git repository and VSTR is unset, returns "none"
 
+### Get currently running PostgreSQL executable path
+```
+SELECT exec_path();
+```
+
 ## Configuration
 
 * Add pgnodemx to shared_preload_libraries in postgresql.conf.

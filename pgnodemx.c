@@ -109,6 +109,8 @@ Oid proc_pid_stat_sig[] = {INT4OID, TEXTOID, TEXTOID,
 						   NUMERICOID, NUMERICOID, NUMERICOID, NUMERICOID,
 						   INT4OID
 						  };
+Oid num_text_num_2_text_sig[] = {NUMERICOID, TEXTOID,
+								 NUMERICOID, TEXTOID, TEXTOID};
 
 void _PG_init(void);
 Datum pgnodemx_cgroup_mode(PG_FUNCTION_ARGS);

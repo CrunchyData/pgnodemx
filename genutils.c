@@ -30,6 +30,9 @@
 
 #include "postgres.h"
 
+#include <grp.h>
+#include <inttypes.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #if PG_VERSION_NUM >= 110000
@@ -52,8 +55,10 @@
 #include "utils/lsyscache.h"
 #include "utils/numeric.h"
 
+#include "fileutils.h"
 #include "genutils.h"
 #include "parseutils.h"
+#include "srfsigs.h"
 
 static int guc_var_compare(const void *a, const void *b);
 static int guc_name_compare(const char *namea, const char *nameb);
@@ -766,11 +771,95 @@ PG_FUNCTION_INFO_V1(pgnodemx_pages_to_bytes);
 Datum
 pgnodemx_pages_to_bytes(PG_FUNCTION_ARGS)
 {
-	Numeric		num1 = PG_GETARG_NUMERIC(0);
-	Numeric		num2  = int64_to_numeric(sysconf(_SC_PAGESIZE));
-	Numeric		res;
+	Numeric		num  = int64_to_numeric(sysconf(_SC_PAGESIZE));
 
-	res = numeric_mul_opt_error(num1, num2, NULL);
+	PG_RETURN_DATUM(DirectFunctionCall2(numeric_mul,
+										PG_GETARG_DATUM(0),
+										NumericGetDatum(num)));
+}
 
-	PG_RETURN_NUMERIC(res);
+/*
+ * Return the currently running executable full path
+ */
+PG_FUNCTION_INFO_V1(pgnodemx_exec_path);
+Datum pgnodemx_exec_path(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_TEXT_P(cstring_to_text(my_exec_path));
+}
+
+#define INTEGER_LEN 64
+/*
+ * pgnodemx version of stat a file
+ */
+PG_FUNCTION_INFO_V1(pgnodemx_stat_file);
+Datum pgnodemx_stat_file(PG_FUNCTION_ARGS)
+{
+	int				nrow = 1;
+	int				ncol = 5;
+	char		 ***values = (char ***) palloc(nrow * sizeof(char **));
+	text		   *filename_t = PG_GETARG_TEXT_PP(0);
+	char		   *filename;
+	struct stat		fst;
+	mode_t			st_mode;        /* File type and mode */
+	uid_t			st_uid;         /* User ID of owner */
+	gid_t			st_gid;         /* Group ID of owner */
+	char			buf[INTEGER_LEN];
+	char		   *uidstr;
+	char		   *gidstr;
+	char		   *modestr;
+	char		   *username;
+	char		   *groupname;
+	struct passwd  *pwd;
+	struct group   *grp;
+
+	filename = convert_and_check_filename(filename_t, true);
+
+	/* stat the file */
+	if (stat(filename, &fst) < 0)
+	{
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not stat file \"%s\": %m", filename)));
+	}
+
+	st_mode = fst.st_mode;
+	st_uid = fst.st_uid;
+	st_gid = fst.st_gid;
+
+	/* get uid string and username */
+	snprintf(buf, INTEGER_LEN, "%" PRIuMAX, (uintmax_t) st_uid);
+	uidstr = pstrdup(buf);
+	pwd = getpwuid(st_uid);
+	if (pwd == NULL)
+		username = NULL;
+	else
+		username = pstrdup(pwd->pw_name);
+
+	/* get gid string and groupname */
+	snprintf(buf, INTEGER_LEN, "%" PRIuMAX, (uintmax_t) st_gid);
+	gidstr = pstrdup(buf);
+	grp = getgrgid(st_gid);
+    if (grp == NULL)
+		groupname = NULL;
+	else
+		groupname = pstrdup(grp->gr_name);
+
+	/* get mode string */
+	snprintf(buf, INTEGER_LEN, "%jo", (uintmax_t) st_mode);
+	modestr = pstrdup(buf);
+
+	values[0] = (char **) palloc(ncol * sizeof(char *));
+
+	/* uid and username for file */
+	values[0][0] = uidstr;
+	values[0][1] = username;
+
+	/* gid and groupname for file */
+	values[0][2] = gidstr;
+	values[0][3] = groupname;
+
+	/* one mode */
+	values[0][4] = modestr;
+
+	return form_srf(fcinfo, values, nrow, ncol, num_text_num_2_text_sig);
 }

@@ -45,15 +45,15 @@ bool kdapi_enabled = true;
  * Take input filename from caller, make sure it is acceptable
  * (not absolute, no relative parent references, caller belongs
  * to correct role), and concatenates it with the path to the
- * related controller in the cgroup filesystem. The returned
- * value is a "fully qualified" path to the file of interest
- * for the purposes of cgroup virtual files.
+ * to the kdapi files. The returned value is a "fully qualified"
+ * path to the file of interest for the purposes of kdapi
+ * virtual files.
  */
 char *
 get_fq_kdapi_path(FunctionCallInfo fcinfo)
 {
 	StringInfo	ftr = makeStringInfo();
-	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0));
+	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0), false);
 
 	appendStringInfo(ftr, "%s/%s", kdapi_path, fname);
 

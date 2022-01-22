@@ -31,6 +31,7 @@
 #include <ctype.h>
 #include <linux/magic.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <string.h>
 #include <sys/param.h>
 #include <sys/stat.h>
@@ -68,8 +69,6 @@ static void get_uid_username( char *pid, char **uid, char **username );
 #define h2b(arg1) \
   DatumGetInt64(DirectFunctionCall1(pg_size_bytes, PointerGetDatum(cstring_to_text(arg1))))
 #endif
-
-#define INTEGER_LEN 10
 
 /* various /proc/ source files */
 #define PROCFS "/proc"
@@ -157,7 +156,7 @@ pgnodemx_proc_diskstats(PG_FUNCTION_ARGS)
 	if (!proc_enabled)
 		return form_srf(fcinfo, NULL, 0, ncol, bigint_bigint_text_11_bigint_sig);
 
-	/* read /proc/self/net/dev file */
+	/* read /proc/diskstats file */
 	lines = read_nlsv(diskstats, &nlines);
 
 	/*
@@ -245,7 +244,7 @@ pgnodemx_proc_mountinfo(PG_FUNCTION_ARGS)
 	if (!proc_enabled)
 		return form_srf(fcinfo, NULL, 0, ncol, _4_bigint_6_text_sig);
 
-	/* read /proc/self/net/dev file */
+	/* read /proc/self/mountinfo file */
 	lines = read_nlsv(mountinfo, &nlines);
 
 	/*
@@ -741,11 +740,12 @@ get_fullcmd(char *pid)
 	return get_string_from_file(fname->data);
 }
 
+#define INTEGER_LEN 64
 static void
 get_uid_username( char *pid, char **uid, char **username )
 {
 	struct stat stat_struct;
-	char tmp[256];
+	char tmp[INTEGER_LEN];
 	/* Get the uid and username of the pid's owner. */
 	snprintf(tmp, sizeof(tmp) - 1, "%s/%s", PROCFS, pid);
 	if (stat(tmp, &stat_struct) < 0)
@@ -758,7 +758,7 @@ get_uid_username( char *pid, char **uid, char **username )
 	{
 		struct passwd *pwd;
 
-		snprintf(tmp, INTEGER_LEN, "%d", stat_struct.st_uid);
+		snprintf(tmp, INTEGER_LEN, "%" PRIuMAX, (uintmax_t) stat_struct.st_uid);
 		*uid = pstrdup(tmp);
 		pwd = getpwuid(stat_struct.st_uid);
 		if (pwd == NULL)

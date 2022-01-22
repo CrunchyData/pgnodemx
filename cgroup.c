@@ -92,7 +92,7 @@ char *
 get_fq_cgroup_path(FunctionCallInfo fcinfo)
 {
 	StringInfo	ftr = makeStringInfo();
-	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0));
+	char	   *fname = convert_and_check_filename(PG_GETARG_TEXT_PP(0), false);
 	char	   *p = strchr(fname, '.');
 	Size		len;
 	char	   *controller;
