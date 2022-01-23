@@ -118,36 +118,36 @@ AS $$
   session,
   tty_nr,
   tpgid,
-  flags,
-  minflt,
-  cminflt,
-  majflt,
-  cmajflt,
-  utime,
-  stime,
-  cutime,
-  cstime,
+  flags::integer, /* 10 */
+  minflt::bigint,
+  cminflt::bigint,
+  majflt::bigint,
+  cmajflt::bigint,
+  utime::bigint,
+  stime::bigint,
+  cutime::bigint,
+  cstime::bigint,
   priority,
-  nice,
+  nice, /* 20 */
   num_threads,
   itrealvalue,
-  starttime,
-  vsize,
-  kpages_to_bytes(rss) / 1024 as rss,
+  starttime::bigint,
+  vsize::bigint,
+  (kpages_to_bytes(rss))::bigint / 1024 as rss,
   exit_signal,
   processor,
   rt_priority,
   policy,
-  delayacct_blkio_ticks,
+  delayacct_blkio_ticks::bigint, /* 30 */
   uid,
   username,
-  rchar,
-  wchar,
-  syscr,
-  syscw,
-  reads,
-  writes,
-  cwrites
+  rchar::bigint,
+  wchar::bigint,
+  syscr::bigint,
+  syscw::bigint,
+  reads::bigint,
+  writes::bigint,
+  cwrites::bigint
  FROM proc_pid_stat() s
  JOIN proc_pid_cmdline() c
  ON s.pid = c.pid
@@ -173,8 +173,8 @@ CREATE OR REPLACE FUNCTION pg_diskusage (
 RETURNS SETOF record
 AS $$
  SELECT
-  major_number AS major,
-  minor_number AS minor,
+  major_number::smallint AS major,
+  minor_number::smallint AS minor,
   device_name AS devname,
   reads_completed_successfully AS reads_completed,
   reads_merged AS reads_merged,
