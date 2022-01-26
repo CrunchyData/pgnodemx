@@ -128,3 +128,31 @@ CREATE OR REPLACE FUNCTION openssl_version()
 RETURNS TEXT
 AS 'MODULE_PATHNAME', 'pgnodemx_openssl_version'
 LANGUAGE C IMMUTABLE STRICT;
+
+DROP FUNCTION proc_diskstats();
+CREATE FUNCTION proc_diskstats
+(
+  OUT major_number BIGINT,
+  OUT minor_number BIGINT,
+  OUT device_name TEXT,
+  OUT reads_completed_successfully NUMERIC,
+  OUT reads_merged NUMERIC,
+  OUT sectors_read NUMERIC,
+  OUT time_spent_reading_ms BIGINT,
+  OUT writes_completed NUMERIC,
+  OUT writes_merged NUMERIC,
+  OUT sectors_written NUMERIC,
+  OUT time_spent_writing_ms BIGINT,
+  OUT ios_currently_in_progress BIGINT,
+  OUT time_spent_doing_ios_ms BIGINT,
+  OUT weighted_time_spent_doing_ios_ms BIGINT,
+  OUT discards_completed_successfully NUMERIC,
+  OUT discards_merged NUMERIC,
+  OUT sectors_discarded NUMERIC,
+  OUT time_spent_discarding BIGINT,
+  OUT flush_requests_completed_successfully NUMERIC,
+  OUT time_spent_flushing BIGINT
+)
+RETURNS SETOF record
+AS 'MODULE_PATHNAME', 'pgnodemx_proc_diskstats'
+LANGUAGE C STABLE STRICT;

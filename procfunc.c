@@ -138,32 +138,30 @@ check_procfs(void)
  * 19 - flush requests completed successfully
  * 20 - time spent flushing
  * 
- * For now, validate either 14,18, or 20 fields found when
- * parsing the lines, but only return the first 14. If there
- * is demand for the other fields at some point, possibly
- * add them then.
+ * Validate either 14,18, or 20 fields found when
+ * parsing the lines. Unused fields passed as NULL.
  */
 PG_FUNCTION_INFO_V1(pgnodemx_proc_diskstats);
 Datum
 pgnodemx_proc_diskstats(PG_FUNCTION_ARGS)
 {
 	int			nrow = 0;
-	int			ncol = 14;
+	int			ncol = 20;
 	char	 ***values = (char ***) palloc(0);
 	char	  **lines;
 	int			nlines;
 
 	if (!proc_enabled)
-		return form_srf(fcinfo, NULL, 0, ncol, bigint_bigint_text_11_bigint_sig);
+		return form_srf(fcinfo, NULL, 0, ncol, proc_diskstats_sig);
 
 	/* read /proc/diskstats file */
 	lines = read_nlsv(diskstats, &nlines);
 
 	/*
 	 * These files have either 14,18, or 20 fields per line.
-	 * We will validate one of those lengths, but only use 14 of the
-	 * space separated columns. The third column is the device name.
-	 * Rest of the columns are bigints.
+	 * Validate one of those lengths. The third column is the device name.
+	 * Rest of the columns are unsigned long or unsigned int, which
+	 * are mapped to postgres numeric or bigints respectively.
 	 */
 	if (nlines > 0)
 	{
@@ -187,7 +185,12 @@ pgnodemx_proc_diskstats(PG_FUNCTION_ARGS)
 							   ntok, diskstats, j + 1)));
 
 			for (k = 0; k < ncol; ++k)
-				values[j][k] = pstrdup(toks[k]);
+			{
+				if (k < ntok)
+					values[j][k] = pstrdup(toks[k]);
+				else
+					values[j][k] = NULL;
+			}
 		}
 	}
 	else
@@ -195,7 +198,7 @@ pgnodemx_proc_diskstats(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				errmsg("pgnodemx: no data in file: %s ", diskstats)));
 
-	return form_srf(fcinfo, values, nrow, ncol, bigint_bigint_text_11_bigint_sig);
+	return form_srf(fcinfo, values, nrow, ncol, proc_diskstats_sig);
 }
 
 /*

@@ -37,13 +37,14 @@ extern Oid text_text_bigint_sig[];
 extern Oid text_text_float8_sig[];
 extern Oid _2_numeric_text_9_numeric_text_sig[];
 extern Oid _4_bigint_6_text_sig[];
-extern Oid bigint_bigint_text_11_bigint_sig[];
 extern Oid text_16_bigint_sig[];
 extern Oid _5_bigint_sig[];
 extern Oid int_7_numeric_sig[];
 extern Oid int_text_int_text_sig[];
-extern Oid load_avg_sig[];
-extern Oid proc_pid_stat_sig[];
 extern Oid num_text_num_2_text_sig[];
+
+extern Oid load_avg_sig[];
+extern Oid proc_diskstats_sig[];
+extern Oid proc_pid_stat_sig[];
 
 #endif /* _SRFSIGS_H_ */

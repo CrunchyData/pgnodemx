@@ -845,7 +845,7 @@ Datum pgnodemx_stat_file(PG_FUNCTION_ARGS)
 		groupname = pstrdup(grp->gr_name);
 
 	/* get mode string */
-	snprintf(buf, INTEGER_LEN, "%jo", (uintmax_t) st_mode);
+	snprintf(buf, INTEGER_LEN, "%o", st_mode & (S_IRWXU | S_IRWXG | S_IRWXO));
 	modestr = pstrdup(buf);
 
 	values[0] = (char **) palloc(ncol * sizeof(char *));

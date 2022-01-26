@@ -75,16 +75,11 @@ Oid _2_numeric_text_9_numeric_text_sig[] = {NUMERICOID, NUMERICOID, TEXTOID, NUM
 										  NUMERICOID, NUMERICOID, NUMERICOID, TEXTOID};
 Oid _4_bigint_6_text_sig[] = {INT8OID, INT8OID, INT8OID, INT8OID,
 							  TEXTOID, TEXTOID, TEXTOID, TEXTOID, TEXTOID, TEXTOID};
-Oid bigint_bigint_text_11_bigint_sig[] = {INT8OID, INT8OID, TEXTOID,
-										  INT8OID, INT8OID, INT8OID, INT8OID,
-										  INT8OID, INT8OID, INT8OID, INT8OID,
-										  INT8OID, INT8OID, INT8OID};
 Oid text_16_bigint_sig[] = {TEXTOID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
 							INT8OID, INT8OID, INT8OID, INT8OID,
 							INT8OID, INT8OID, INT8OID, INT8OID};
-
 
 Oid _5_bigint_sig[] = { INT8OID, INT8OID, INT8OID, INT8OID, INT8OID };
 
@@ -92,6 +87,14 @@ Oid int_7_numeric_sig[] = { INT4OID, NUMERICOID, NUMERICOID, NUMERICOID,
 							NUMERICOID, NUMERICOID, NUMERICOID, NUMERICOID };
 Oid int_text_int_text_sig[] = { INT4OID, TEXTOID, INT4OID, TEXTOID };
 Oid load_avg_sig[] = { FLOAT8OID, FLOAT8OID, FLOAT8OID, INT4OID };
+
+/* proc_diskstats is unique enough to have its own sig */
+Oid proc_diskstats_sig[] = {INT8OID, INT8OID, TEXTOID,
+							NUMERICOID, NUMERICOID, NUMERICOID, INT8OID,
+							NUMERICOID, NUMERICOID, NUMERICOID, INT8OID,
+							INT8OID, INT8OID, INT8OID,
+							NUMERICOID, NUMERICOID, NUMERICOID, INT8OID,
+							NUMERICOID, INT8OID};
 
 /* proc_pid_stat is unique enough to have its own sig */
 Oid proc_pid_stat_sig[] = {INT4OID, TEXTOID, TEXTOID, 
@@ -193,7 +196,7 @@ _PG_init(void)
 	}
 
 	/* force kdapi disabled if path does not exist */
-	if (access(kdapi_path, F_OK) != 0)
+	if (kdapi_enabled && access(kdapi_path, F_OK) != 0)
 	{
 		/*
 		 * If kdapi_path does not exist, there is not

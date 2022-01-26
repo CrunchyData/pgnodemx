@@ -169,23 +169,36 @@ CREATE OR REPLACE FUNCTION pg_diskusage (
         OUT writetime bigint,
         OUT current_io bigint,
         OUT iotime bigint,
-        OUT totaliotime bigint)
+        OUT totaliotime bigint,
+        OUT discards_completed bigint,
+        OUT discards_merged bigint,
+        OUT sectors_discarded bigint,
+        OUT discardtime bigint,
+        OUT flushes_completed bigint,
+        OUT flushtime bigint
+)
 RETURNS SETOF record
 AS $$
  SELECT
   major_number::smallint AS major,
   minor_number::smallint AS minor,
   device_name AS devname,
-  reads_completed_successfully AS reads_completed,
-  reads_merged AS reads_merged,
-  sectors_read AS sectors_read,
+  reads_completed_successfully::bigint AS reads_completed,
+  reads_merged::bigint AS reads_merged,
+  sectors_read::bigint AS sectors_read,
   time_spent_reading_ms AS readtime,
-  writes_completed AS writes_completed,
-  writes_merged AS writes_merged,
-  sectors_written AS sectors_written,
+  writes_completed::bigint AS writes_completed,
+  writes_merged::bigint AS writes_merged,
+  sectors_written::bigint AS sectors_written,
   time_spent_writing_ms AS writetime,
   ios_currently_in_progress AS current_io,
   time_spent_doing_ios_ms AS iotime,
-  weighted_time_spent_doing_ios_ms AS totaliotime
+  weighted_time_spent_doing_ios_ms AS totaliotime,
+  COALESCE(discards_completed_successfully, 0)::bigint AS discards_completed,
+  COALESCE(discards_merged, 0)::bigint AS discards_merged,
+  COALESCE(sectors_discarded, 0)::bigint AS sectors_discarded,
+  COALESCE(time_spent_discarding, 0) AS discardtime,
+  COALESCE(flush_requests_completed_successfully, 0)::bigint AS flushes_completed,
+  COALESCE(time_spent_flushing, 0) AS flushtime
  FROM proc_diskstats()
 $$ LANGUAGE sql;
