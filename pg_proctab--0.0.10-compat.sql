@@ -1,7 +1,7 @@
-/* contrib/pgnodemx/pg_proctab--0.0.9-compat.sql */
+/* contrib/pgnodemx/pg_proctab--0.0.10-compat.sql */
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
-\echo Use "CREATE EXTENSION pg_proctab VERSION 0.0.9-compat" to load this file. \quit
+\echo Use "CREATE EXTENSION pg_proctab VERSION 0.0.10-compat" to load this file. \quit
 
 /*
  * Functions to provide a pg_proctab compatible interface.

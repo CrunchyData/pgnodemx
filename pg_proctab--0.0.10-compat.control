@@ -1,4 +1,4 @@
-# pg_proctab--0.0.9-compat extension
+# pg_proctab--0.0.10-compat extension
 comment = 'Provide compatibility for pg_proctab'
 relocatable = true
 requires = pgnodemx

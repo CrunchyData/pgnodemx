@@ -155,7 +155,7 @@ SELECT * FROM proc_loadavg();
 
 Five functions are provided in an extension that match the SQL interface presented by the pg_proctab extension.
 ```
-CREATE EXTENSION pg_proctab VERSION "0.0.9-compat";
+CREATE EXTENSION pg_proctab VERSION "0.0.10-compat";
 SELECT * FROM pg_cputime();
 SELECT * FROM pg_loadavg();
 SELECT * FROM pg_memusage();
@@ -163,7 +163,7 @@ SELECT * FROM pg_diskusage();
 SELECT * FROM pg_proctab();
 ```
 
-These functions are not installed by default. They may be installed by installing pg_proctab VERSION "0.0.9-compat" after installing the pgnodemx extension.
+These functions are not installed by default. They may be installed by installing pg_proctab VERSION "0.0.10-compat" after installing the pgnodemx extension.
 
 ## System Information Related Functions
 
