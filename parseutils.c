@@ -383,7 +383,8 @@ parse_quoted_string(char **source)
 	while (*src)
 	{
 		char		c = *src;
-		pg_wchar    cp = 0;
+		pg_wchar	cp = 0;
+		int			i;
 
 		if (lastSlash)
 		{
@@ -439,7 +440,7 @@ parse_quoted_string(char **source)
 			case 'u':
 			case 'U':
 				/* unicode code point handling */
-				for (int i = 1; i <= (c == 'u' ? 4 : 8); i++)
+				for (i = 1; i <= (c == 'u' ? 4 : 8); i++)
 				{
 					if (is_hex_digit(src[i]))
 					{
