@@ -9,7 +9,7 @@
  * pg_top as a remote target.
  */
 
-CREATE OR REPLACE FUNCTION pg_cputime(
+CREATE FUNCTION pg_cputime(
  OUT "user" BIGINT,
  OUT nice BIGINT,
  OUT system BIGINT,
@@ -22,7 +22,7 @@ AS $$
  FROM proc_cputime()
 $$ LANGUAGE sql;
 
-CREATE OR REPLACE FUNCTION pg_loadavg(
+CREATE FUNCTION pg_loadavg(
  OUT load1 FLOAT,
  OUT load5 FLOAT,
  OUT load15 FLOAT,
@@ -38,7 +38,7 @@ $$ LANGUAGE sql;
  * Compatibility note: in the original implementation memshared
  * is always equal to zero. Here we use the value from Shmem instead.
  */
-CREATE OR REPLACE FUNCTION pg_memusage(
+CREATE FUNCTION pg_memusage(
 		OUT memused BIGINT,
 		OUT memfree BIGINT,
 		OUT memshared BIGINT,
@@ -65,7 +65,7 @@ AS $$
   (SELECT val FROM m WHERE key = 'SwapCached') / 1024 as swapcached
 $$ LANGUAGE sql;
 
-CREATE OR REPLACE FUNCTION pg_proctab(
+CREATE FUNCTION pg_proctab(
  OUT pid integer,
  OUT comm character varying,
  OUT fullcomm character varying,
@@ -155,7 +155,7 @@ AS $$
  ON c.pid = i.pid
 $$ LANGUAGE sql;
 
-CREATE OR REPLACE FUNCTION pg_diskusage (
+CREATE FUNCTION pg_diskusage (
         OUT major smallint,
         OUT minor smallint,
         OUT devname text,
