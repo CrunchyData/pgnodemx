@@ -690,7 +690,7 @@ pgnodemx_openssl_version(PG_FUNCTION_ARGS)
 	pgnodemx_check_role();
 
 #ifdef USE_OPENSSL
-	PG_RETURN_TEXT_P(cstring_to_text(OpenSSL_version(OPENSSL_VERSION)));
+	PG_RETURN_TEXT_P(cstring_to_text(OPENSSL_VERSION_TEXT));
 #else
 	PG_RETURN_NULL();
 #endif
