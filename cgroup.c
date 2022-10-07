@@ -151,21 +151,21 @@ cgmembers(int64 **pids)
 	{
 		bool	success = false;
 		int64	result;
-        #if PG_VERSION_NUM >= 150000
-        char   *endptr;
-        #endif
+		#if PG_VERSION_NUM >= 150000
+		char   *endptr;
+		#endif
 
-        #if PG_VERSION_NUM < 150000
+		#if PG_VERSION_NUM < 150000
 		success = scanint8(lines[i], true, &result);
-        #endif
-        #if PG_VERSION_NUM >= 150000
-        errno = 0;
-        result = strtoi64(lines[i], &endptr, 10);
-        if (errno == 0)
-        {
-            success = true;
-        }
-        #endif
+		#endif
+		#if PG_VERSION_NUM >= 150000
+		errno = 0;
+		result = strtoi64(lines[i], &endptr, 10);
+		if (errno == 0)
+		{
+			success = true;
+		}
+		#endif
 		if (!success)
 			ereport(ERROR,
 					(errcode_for_file_access(),

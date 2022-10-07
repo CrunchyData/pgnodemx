@@ -607,15 +607,15 @@ pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
 
     #if PG_VERSION_NUM < 150000
 	success = scanint8(value, true, &result);
-    #endif
-    #if PG_VERSION_NUM >= 150000
-    errno = 0;
-    result = strtoi64(value, &endptr, 10);
-    if (errno == 0)
-    {
-        success = true;
-    }
-    #endif
+	#endif
+	#if PG_VERSION_NUM >= 150000
+	errno = 0;
+	result = strtoi64(value, &endptr, 10);
+	if (errno == 0)
+	{
+		success = true;
+	}
+	#endif
 	if (!success)
 		ereport(ERROR,
 			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),

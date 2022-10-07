@@ -567,15 +567,15 @@ get_int64_from_file(char *ftr)
 	{
         #if PG_VERSION_NUM < 150000
 		success = scanint8(rawstr, true, &result);
-        #endif
-        #if PG_VERSION_NUM >= 150000
-        errno = 0;
-        result = strtoi64(rawstr, &endptr, 10);
-        if (errno == 0)
-        {
-            success = true;
-        }
-        #endif
+		#endif
+		#if PG_VERSION_NUM >= 150000
+		errno = 0;
+		result = strtoi64(rawstr, &endptr, 10);
+		if (errno == 0)
+		{
+			success = true;
+		}
+		#endif
 		if (!success)
 			ereport(ERROR,
 					(errcode_for_file_access(),
