@@ -605,7 +605,7 @@ pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
 	/* Limit use to members of special role */
 	pgnodemx_check_role();
 
-    #if PG_VERSION_NUM < 150000
+	#if PG_VERSION_NUM < 150000
 	success = scanint8(value, true, &result);
 	#endif
 	#if PG_VERSION_NUM >= 150000
