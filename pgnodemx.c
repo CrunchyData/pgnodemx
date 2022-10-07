@@ -39,6 +39,9 @@
 #endif
 #include <unistd.h>
 
+#if PG_VERSION_NUM < 150000
+#include "utils/int8.h"
+#endif
 #include "catalog/pg_authid.h"
 #if PG_VERSION_NUM >= 110000
 #include "catalog/pg_type_d.h"
@@ -50,7 +53,6 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/guc_tables.h"
-#include "utils/int8.h"
 
 #include "cgroup.h"
 #include "envutils.h"
@@ -596,11 +598,24 @@ pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
 	int64	result;
 	char   *varname = text_to_cstring(PG_GETARG_TEXT_PP(0));
 	char   *value = get_string_from_env(varname);
+    #if PG_VERSION_NUM >= 150000
+    char   *endptr;
+    #endif
 
 	/* Limit use to members of special role */
 	pgnodemx_check_role();
 
+    #if PG_VERSION_NUM < 150000
 	success = scanint8(value, true, &result);
+    #endif
+    #if PG_VERSION_NUM >= 150000
+    errno = 0;
+    result = strtoi64(value, &endptr, 10);
+    if (errno == 0)
+    {
+        success = true;
+    }
+    #endif
 	if (!success)
 		ereport(ERROR,
 			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
