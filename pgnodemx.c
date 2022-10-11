@@ -610,7 +610,7 @@ pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
 #else
 	errno = 0;
 	result = strtoi64(value, &endptr, 10);
-	if (errno == 0)
+	if (errno == 0 && *endptr == '\0')
 	{
 		success = true;
 	}

@@ -160,7 +160,7 @@ cgmembers(int64 **pids)
 #else
 		errno = 0;
 		result = strtoi64(lines[i], &endptr, 10);
-		if (errno == 0)
+		if (errno == 0 && *endptr == '\0')
 		{
 			success = true;
 		}
