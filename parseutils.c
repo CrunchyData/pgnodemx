@@ -565,17 +565,16 @@ get_int64_from_file(char *ftr)
 		result = PG_INT64_MAX;
 	else
 	{
-        #if PG_VERSION_NUM < 150000
+#if PG_VERSION_NUM < 150000
 		success = scanint8(rawstr, true, &result);
-		#endif
-		#if PG_VERSION_NUM >= 150000
+#else
 		errno = 0;
 		result = strtoi64(rawstr, &endptr, 10);
 		if (errno == 0)
 		{
 			success = true;
 		}
-		#endif
+#endif
 		if (!success)
 			ereport(ERROR,
 					(errcode_for_file_access(),
