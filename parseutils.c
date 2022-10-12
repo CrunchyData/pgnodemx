@@ -555,7 +555,7 @@ get_int64_from_file(char *ftr)
 	bool		success = false;
 	int64		result;
 #if PG_VERSION_NUM >= 150000
-	char       *endptr;
+	char       *endptr = NULL;
 #endif
 
 	rawstr = read_one_nlsv(ftr);

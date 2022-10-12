@@ -599,7 +599,7 @@ pgnodemx_envvar_bigint(PG_FUNCTION_ARGS)
 	char   *varname = text_to_cstring(PG_GETARG_TEXT_PP(0));
 	char   *value = get_string_from_env(varname);
 #if PG_VERSION_NUM >= 150000
-	char   *endptr;
+	char   *endptr = NULL;
 #endif
 
 	/* Limit use to members of special role */
