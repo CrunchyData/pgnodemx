@@ -15,7 +15,7 @@ EXTENSION	= pgnodemx pg_proctab--0.0.10-compat
 else
 EXTENSION	= pgnodemx pg_proctab--0.0.10-compat pg_proctab
 endif
-DATA		= pgnodemx--1.0--1.1.sql pgnodemx--1.1--1.2.sql pgnodemx--1.2--1.3.sql pgnodemx--1.3.sql pg_proctab--0.0.10-compat.sql
+DATA		= pgnodemx--1.0--1.1.sql pgnodemx--1.1--1.2.sql pgnodemx--1.2--1.3.sql pgnodemx--1.3--1.4.sql pgnodemx--1.4.sql pg_proctab--0.0.10-compat.sql
 
 GHASH := $(shell git rev-parse --short HEAD)
 

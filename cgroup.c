@@ -38,6 +38,9 @@
 #include <sys/vfs.h>
 #include <unistd.h>
 
+#if PG_VERSION_NUM < 150000
+#include "utils/int8.h"
+#endif
 #if PG_VERSION_NUM >= 110000
 #include "catalog/pg_type_d.h"
 #else
@@ -52,12 +55,10 @@
 #include "lib/stringinfo.h"
 #include "utils/builtins.h"
 #include "utils/guc_tables.h"
-#include "utils/int8.h"
 #include "utils/memutils.h"
 #if PG_VERSION_NUM >= 100000
 #include "utils/varlena.h"
 #endif
-
 #include "fileutils.h"
 #include "genutils.h"
 #include "parseutils.h"
@@ -150,8 +151,18 @@ cgmembers(int64 **pids)
 	{
 		bool	success = false;
 		int64	result;
+#if PG_VERSION_NUM >= 150000
+		char   *endptr = NULL;
+#endif
 
+#if PG_VERSION_NUM < 150000
 		success = scanint8(lines[i], true, &result);
+#else
+		errno = 0;
+		result = strtoi64(lines[i], &endptr, 10);
+		if (errno == 0 && *endptr == '\0')
+			success = true;
+#endif
 		if (!success)
 			ereport(ERROR,
 					(errcode_for_file_access(),
