@@ -685,7 +685,11 @@ pgnodemx_fips_mode(PG_FUNCTION_ARGS)
 	pgnodemx_check_role();
 
 #ifdef USE_OPENSSL
+#if OPENSSL_VERSION_MAJOR >= 3
+	if (EVP_default_properties_is_fips_enabled(NULL))
+#else
 	if (FIPS_mode())
+#endif
 		PG_RETURN_BOOL(true);
 	else
 		PG_RETURN_BOOL(false);
