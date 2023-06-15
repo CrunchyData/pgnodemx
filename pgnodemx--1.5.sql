@@ -1,4 +1,4 @@
-/* contrib/pgnodemx/pgnodemx--1.3.sql */
+/* pgnodemx--1.5.sql */
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION pgnodemx" to load this file. \quit
