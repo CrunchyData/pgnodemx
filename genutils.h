@@ -38,7 +38,6 @@ extern Datum setof_scalar_internal(FunctionCallInfo fcinfo,
 extern Datum string_get_array_datum(char **values, int nvals,
 									Oid typelem, bool *isnull);
 extern int int64_cmp(const void *p1, const void *p2);
-extern struct config_generic *find_option(const char *name);
 extern char *int64_to_string(int64 val);
 extern int pg_ulltoa(uint64 uvalue, char *a);
 extern char *uint64_to_string(uint64 val);

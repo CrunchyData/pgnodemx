@@ -401,39 +401,6 @@ int64_cmp(const void *p1, const void *p2)
 /*
  * Functions for obtaining the context within which we are operating
  */
-/*
- * Look up GUC option NAME. If it exists, return a pointer to its record,
- * else return NULL. This is cribbed from guc.c -- unfortunately there
- * seems to be no exported functionality to get the entire record by name.
- */
-struct config_generic *
-find_option(const char *name)
-{
-	const char			  **key = &name;
-	struct config_generic **res;
-	struct config_generic **guc_vars;
-	int                     numOpts;
-
-	Assert(name);
-
-	guc_vars = get_guc_variables();
-	numOpts = GetNumConfigOptions();
-
-	/*
-	 * By equating const char ** with struct config_generic *, we are assuming
-	 * the name field is first in config_generic.
-	 */
-	res = (struct config_generic **) bsearch((void *) &key,
-											 (void *) guc_vars,
-											 numOpts,
-											 sizeof(struct config_generic *),
-											 guc_var_compare);
-	if (res)
-		return *res;
-
-	/* Unknown name */
-	return NULL;
-}
 
 /*
  * Additional utility functions cribbed from guc.c

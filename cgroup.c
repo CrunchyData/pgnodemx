@@ -202,7 +202,7 @@ set_containerized(void)
 	 */
 	struct config_generic *record;
 
-	record = find_option("pgnodemx.containerized");
+	record = find_option("pgnodemx.containerized", false, false, ERROR);
 	if (record->source == PGC_S_FILE)
 		return;
 
