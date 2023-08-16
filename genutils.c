@@ -62,8 +62,14 @@
 #include "parseutils.h"
 #include "srfsigs.h"
 
+#if PG_VERSION_NUM < 160000
+/* These two functions are used via custom find_option() function
+    Once custom find_option is dropped in PG16+, remove these
+    unused functions here and full definitions below
+    https://github.com/CrunchyData/pgnodemx/pull/18 */
 static int guc_var_compare(const void *a, const void *b);
 static int guc_name_compare(const char *namea, const char *nameb);
+#endif
 
 #if PG_VERSION_NUM < 140000
 static Numeric
@@ -401,7 +407,11 @@ int64_cmp(const void *p1, const void *p2)
 /*
  * Functions for obtaining the context within which we are operating
  */
-/*
+#if PG_VERSION_NUM < 160000
+/* Remove this custom find_option() function once PG16+ is the lowest
+ *  supported PG version
+ *  https://github.com/CrunchyData/pgnodemx/pull/18
+ *
  * Look up GUC option NAME. If it exists, return a pointer to its record,
  * else return NULL. This is cribbed from guc.c -- unfortunately there
  * seems to be no exported functionality to get the entire record by name.
@@ -434,11 +444,13 @@ find_option(const char *name)
 	/* Unknown name */
 	return NULL;
 }
+#endif
 
 /*
  * Additional utility functions cribbed from guc.c
  */
 
+#if PG_VERSION_NUM < 160000
 /*
  * comparator for qsorting and bsearching guc_variables array
  */
@@ -480,6 +492,7 @@ guc_name_compare(const char *namea, const char *nameb)
 		return -1;				/* b is longer */
 	return 0;
 }
+#endif
 
 char *
 int64_to_string(int64 val)

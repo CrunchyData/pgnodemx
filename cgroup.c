@@ -202,7 +202,11 @@ set_containerized(void)
 	 */
 	struct config_generic *record;
 
+	#if PG_VERSION_NUM < 160000
 	record = find_option("pgnodemx.containerized");
+	#else
+	record = find_option("pgnodemx.containerized", false, false, ERROR);
+	#endif
 	if (record->source == PGC_S_FILE)
 		return;
 
